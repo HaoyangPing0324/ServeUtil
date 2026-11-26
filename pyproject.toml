@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "serveutil"
+version = "0.0.1.dev0"
+description = "Readable compute and bandwidth timelines for LLM serving"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+dependencies = ["ijson>=3.2,<4"]
+
+[project.scripts]
+serveutil = "serveutil:main"
+
+[tool.setuptools]
+py-modules = ["serveutil"]
