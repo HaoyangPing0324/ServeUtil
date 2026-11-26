@@ -128,6 +128,9 @@ def export(source, destination):
                 counts["kept"] += 1
                 counts[event.get("ph")] += 1
             out.write("\n]")
+            nccl_version = header.pop("distributedInfo.nccl_version", None)
+            if nccl_version is not None:
+                header["distributedInfo"] = {"nccl_version": nccl_version}
             for key, value in header.items():
                 out.write(
                     "," + json.dumps(key) + ":" + json.dumps(value, default=float)

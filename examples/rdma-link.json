@@ -1,0 +1,31 @@
+{
+  "transport": "rdma-write",
+  "seconds": 4,
+  "bidirectional": false,
+  "source": {
+    "name": "prefill",
+    "command": [
+      "ssh",
+      "prefill",
+      "python3",
+      "-m",
+      "serveutil.worker"
+    ],
+    "address": "192.0.2.1",
+    "workdir": "serveutil-runs",
+    "rdma_port": "mlx5_0/1"
+  },
+  "destination": {
+    "name": "decode",
+    "command": [
+      "ssh",
+      "decode",
+      "python3",
+      "-m",
+      "serveutil.worker"
+    ],
+    "address": "192.0.2.2",
+    "workdir": "serveutil-runs",
+    "rdma_port": "mlx5_0/1"
+  }
+}

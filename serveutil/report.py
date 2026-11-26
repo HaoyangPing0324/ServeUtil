@@ -161,6 +161,33 @@ def load_trace(path, rank, analysis=None):
                         GB_s=args["bytes"] / (duration * 1000),
                         method="Payload bytes / GPU copy duration",
                     )
+                    for field, keys in {
+                        "source_device": (
+                            "srcDeviceId",
+                            "srcDevice",
+                            "src device",
+                            "source device",
+                        ),
+                        "destination_device": (
+                            "dstDeviceId",
+                            "dstDevice",
+                            "dst device",
+                            "destination device",
+                        ),
+                    }.items():
+                        ordinal = next((args[k] for k in keys if k in args), None)
+                        if ordinal is not None:
+                            event["copy"][field] = str(ordinal)
+                    copy = event["copy"]
+                    if direction == "device":
+                        if (
+                            "source_device" in copy
+                            and "destination_device" in copy
+                            and copy["source_device"] != copy["destination_device"]
+                        ):
+                            copy["direction"] = "peer"
+                        else:
+                            copy["read_write_GB_s"] = 2 * copy["GB_s"]
             if kind == "operator" and "External id" in args:
                 collectives.observe_operator(event, name, args, (pid, tid))
                 work = matmul_work(name, args)
@@ -183,7 +210,10 @@ def load_trace(path, rank, analysis=None):
             event = kernels[0]
             event["gemm"] = {
                 **gemms[key],
-                "TFLOP/s": gemms[key]["flops"] / (event["dur"] * 1e6),
+                gemms[key]["rate_unit"]: gemms[key].get(
+                    "operations", gemms[key].get("flops")
+                )
+                / (event["dur"] * 1e6),
             }
     begin = min(
         [e["ts"] for e in events]
@@ -234,8 +264,12 @@ def inputs(path, analysis=None):
                 e["kind"] in {"compute", "copy", "communication"}
                 for e in parsed["events"]
             ):
-                raise ValueError(
-                    f"{file.name}: worker trace contains no device activities"
+                if manifest.get("status") != "failed":
+                    raise ValueError(
+                        f"{file.name}: worker trace contains no device activities"
+                    )
+                parsed["device_activity_unavailable"] = (
+                    "The failed capture recovered no device activities on this worker."
                 )
             parsed.update(node=trace.get("node"), role=trace.get("role"))
             traces.append(parsed)
@@ -396,8 +430,10 @@ def make_report(path, *, analysis=None):
                 if reference:
                     op["reference_pct"] = reference["percent"]
                     op["reference"] = {
-                        "value": reference["reference_GB_s"], "unit": "GB/s",
-                        "source": reference["source"], "parameters": reference["parameters"],
+                        "value": reference["reference_GB_s"],
+                        "unit": "GB/s",
+                        "source": reference["source"],
+                        "parameters": reference["parameters"],
                     }
             if "gemm" not in e and "copy" not in e:
                 continue
@@ -409,23 +445,45 @@ def make_report(path, *, analysis=None):
             if "gemm" in e:
                 value = e["gemm"]
                 dtype = {
+                    "char": "int8",
                     "half": "float16",
                     "float": "float32",
                     "double": "float64",
                 }.get(value["dtype"], value["dtype"])
-                metric, absolute = "gemm." + dtype, value["TFLOP/s"]
+                unit = value["rate_unit"]
+                metric, absolute = "gemm." + dtype, value[unit]
             else:
                 value = e["copy"]
-                metric, absolute = "copy." + value["direction"], value["GB_s"]
+                unit = "GB/s"
+                metric = "copy." + value["direction"]
+                absolute = value.get("read_write_GB_s", value["GB_s"])
+                if value["direction"] == "peer":
+                    src = explicit.get(value.get("source_device"))
+                    dst = explicit.get(value.get("destination_device"))
+                    if not src or not dst or src == dst:
+                        continue
+                    uuid = src
             candidates = [
                 r
                 for r in refs
-                if r["metric"] == metric and r["device"] == uuid and r["value"] > 0
+                if r.get("metric") == metric
+                and r.get("device") == uuid
+                and r.get("unit") == unit
+                and r.get("value", 0) > 0
             ]
+            if metric == "copy.peer":
+                candidates = [
+                    r
+                    for r in candidates
+                    if r.get("parameters", {}).get("src") == src
+                    and r.get("parameters", {}).get("dst") == dst
+                ]
             if len(candidates) == 1:
                 ref = candidates[0]
                 value["reference"] = {
-                    k: ref[k] for k in ("value", "unit", "source", "parameters")
+                    k: ref[k]
+                    for k in ("value", "unit", "source", "parameters")
+                    if k in ref
                 }
                 value["reference_pct"] = 100 * absolute / ref["value"]
     transfers = []
@@ -498,15 +556,27 @@ def make_report(path, *, analysis=None):
         kv_metrics=[
             {
                 **row,
-                **({"ts": (row["start_ns"] - origin) / 1000, "dur": row["interval_ns"] / 1000}
-                   if common_clock and row.get("status") == "ok" and "interval_ns" in row else {}),
+                **(
+                    {
+                        "ts": (row["start_ns"] - origin) / 1000,
+                        "dur": row["interval_ns"] / 1000,
+                    }
+                    if common_clock
+                    and row.get("status") == "ok"
+                    and "interval_ns" in row
+                    else {}
+                ),
             }
             for row in manifest.get("kv_metrics", [])
         ],
         engine=manifest.get("engine"),
         status=manifest.get("status"),
+        error=manifest.get("error"),
+        collection_errors=manifest.get("collection_errors", []),
         aligned=common_clock or len(traces) == 1,
-        alignment_note=None if common_clock else (
+        alignment_note=None
+        if common_clock
+        else (
             "A trace has no Kineto baseTimeNanoseconds. Each rank uses its first event as zero. "
             "Absolute-time hardware samples and KV handoffs cannot be placed on these axes."
         ),
@@ -524,7 +594,11 @@ def _portable_data(path):
         return None
     if path.suffix.lower() == ".html":
         html = path.read_text(encoding="utf-8")
-        match = re.search(r'<script\s+id="capture-data"\s+type="application/json">([\s\S]*?)</script>', html, re.I)
+        match = re.search(
+            r'<script\s+id="capture-data"\s+type="application/json">([\s\S]*?)</script>',
+            html,
+            re.I,
+        )
         if match is None:
             raise ValueError("This HTML file does not contain a ServeUtil report.")
         return json.loads(match[1])

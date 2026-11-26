@@ -89,12 +89,47 @@ def matmul_work(name, args):
     """Fused multiply-add counts twice. Only match explicit dense GEMM shapes."""
     shapes = args.get("Input Dims") or []
     types = args.get("Input type") or []
-    if name not in {"aten::mm", "aten::bmm", "aten::addmm"}:
+    if name not in {
+        "aten::mm",
+        "aten::bmm",
+        "aten::addmm",
+        "aten::_int_mm",
+        "aten::_scaled_mm",
+    }:
         return None
     index = 1 if name == "aten::addmm" else 0
     try:
         left, right = shapes[index : index + 2]
         dtype = str(types[index]).split("::")[-1].lower()
+        right_type = str(types[index + 1]).split("::")[-1].lower()
+        if right_type != dtype:
+            return None
+        dtype = {"signed char": "int8", "unsigned char": "uint8", "char": "int8"}.get(
+            dtype, dtype
+        )
+        floating = {
+            "half",
+            "float",
+            "double",
+            "float16",
+            "float32",
+            "float64",
+            "bfloat16",
+        }
+        integer = dtype in {
+            "char",
+            "byte",
+            "short",
+            "int",
+            "long",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+        }
+        if not (integer or dtype in floating or dtype.startswith("float8_")):
+            return None
         if (
             len(left) != len(right)
             or len(left) not in (2, 3)
@@ -104,11 +139,13 @@ def matmul_work(name, args):
         if left[-1] != right[-2] or min(*left, *right) <= 0:
             return None
         batch = left[0] if len(left) == 3 else 1
+        count = 2 * batch * left[-2] * left[-1] * right[-1]
         return dict(
-            flops=2 * batch * left[-2] * left[-1] * right[-1],
+            **({"operations": count} if integer else {"flops": count}),
+            rate_unit="TOP/s" if integer else "TFLOP/s",
             dtype=dtype,
             shape=[left, right],
-            method="Dense GEMM input shapes; one multiply-add counts as two FLOPs",
+            method="Dense GEMM input shapes; one multiply-add counts as two operations",
         )
     except (IndexError, TypeError, ValueError):
         return None

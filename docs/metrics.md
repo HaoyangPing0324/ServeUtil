@@ -7,7 +7,7 @@
 | HBM 读、写 | CUPTI PM sampling 提供分方向的设备级读写速率，十进制 GB/s。需要 GPU、驱动和性能计数器权限支持。 |
 | HBM 总带宽估算 | 用 NVML GPM 的 DRAM 带宽利用率和设备报告的显存参数推算。查看器以 estimated 区分此口径。 |
 | SM、Tensor、精度流水线 | 设备采样周期内的活跃度，单位 %。支持情况取决于 GPU 和驱动。 |
-| GEMM 有效算力 | 对具有输入形状、数据类型且唯一关联到一个 GPU kernel 的 dense mm、bmm、addmm，以乘加计两次操作。显示形状推算的 FLOPs 除以实测 kernel 时长。选区卡片仅计完整落入选区的匹配 kernel，分母为这些 kernel 耗时之和。 |
+| GEMM 有效算力 | 对具有输入形状、数据类型且唯一关联到一个 GPU kernel 的 dense mm、bmm、addmm 以及同输入精度的 _int_mm、_scaled_mm，以乘加计两次操作。浮点运算显示 TFLOP/s，整数运算显示 TOP/s，速率按形状推算的操作数除以实测 kernel 时长。选区卡片仅计完整落入选区的匹配 kernel，分母为这些 kernel 耗时之和。 |
 | GPU↔GPU | NVLink TX/RX 为设备全部所选链路的合计速率。集合通信 kernel 的名称和时间可在独立轨道查看。nccl-tests 的算法带宽与总线折算带宽分别存储。 |
 | CPU↔GPU | PCIe TX/RX 涵盖该 GPU 的总 PCIe 流量。可识别的 HtoD、DtoH 事件另按拷贝有效字节和 GPU 时长计算。 |
 | 节点网络 | eRDMA 字节计数、IB 端口计数或 Linux 网口计数按时间差换算 GB/s。同一份数据可能经过多个设备，跨层汇总须使用对应层的计数。 |
@@ -34,3 +34,5 @@
 在 **Communication** 视图选择完整操作，可读到该 rank 的有效载荷、进程组、序号和 GPU 执行时间。多 kernel 操作从首个 kernel 开始计到最后一个结束，有效载荷只计一次。AllGather 按聚合后的总消息、ReduceScatter 按散发前的总消息计算有效带宽。支持的等量集合另显示依照 nccl-tests 定义折算的 bus bandwidth。点对点收发显示对端和方向。各 rank 的执行时间包含其等待对端的时间，因而同一序号可以有不同的速率。
 
 `serveutil.profile` 和 `serveutil.instrument` 都接受 `calibration="auto"`（默认，在首次录制前测量并缓存）、`False` 或已保存的标定 JSON 路径。使用已有 `torch.profiler.schedule` 时，`instrument` 为每个活动窗口单独保存原始 trace 和对应的硬件样本。
+
+同设备拷贝的有效载荷为复制的字节数。与显存 copy 微测比较时，读、写各计一次，详情中的 `read_write_GB_s` 为两者之和。GPU 对 GPU 的 peer copy 使用有效载荷速率，仅在能确认发送和接收设备、并找到同方向的设备对基线时显示百分比。

@@ -10,8 +10,13 @@
 | vLLM 0.29.0、SGLang 0.5.21 | 单 GPU、双 GPU TP，以及同机的 Prefill/Decode 分离均以实际请求采集。SGLang 请求 span 可关联到交接区间。vLLM NIXL 的一次采集在 Decode 端得到 36 笔传输、66,060,288 字节、0 次失败。 |
 | 多进程 GPU 通信 | vLLM 0.32.0 使用两实例 PP2。SGLang 0.5.22 使用两实例 TP2。两实例位于同一台 H20 主机。独立 rank trace 保留实际的 NCCL 点对点及集合通信元数据。 |
 | 跨物理 GPU 的 vLLM PD | vLLM ExampleConnector 导出 28 层、共 5,505,024 字节的 KV，经显式文件中继交给另一台主机。Decode 端命中 48 个外部缓存 token，生成的 8 个 token 与完整模型逐项吻合。trace 中分别有 28 次等大小的 DtoH 和 HtoD。 |
+| 跨物理 GPU 的 SGLang PD | SGLang 0.5.22 使用两台主机上的独立 Prefill、Decode 服务，经 NIXL 和 UCX/TCP 转发 KV。在包含预热的隔离请求中，6 笔可用引擎直方图与请求 span 唯一对应，各 7,225,344 字节。单次请求的 8 个 token 与单 GPU 参考逐一吻合。两端分别保留了 1,470 和 9,258 个 GPU kernel。 |
+| 跨物理 GPU 的 SGLang TP2 | 两台主机各运行一个 SGLang 0.5.22 rank，经 NCCL NET/Socket 完成 6 笔真实流式请求。两个物理 GPU 各记录 116 个 NCCL kernel，两个节点分别采到 17,340 和 17,295 个硬件及端口样本。 |
+| 跨物理 GPU 的 vLLM PP2 | 两台主机各运行一个 vLLM 0.32.0 rank，使用 NCCL NET/Socket 经中继连接。13 笔请求生成 39 个输出 token；两端 38 对 Send/Recv 按组、序号与消息大小逐一匹配，激活载荷合计 200,704 字节。另一次生成的 8 个 token 逐项等于单卡参考。 |
 | 跨物理 GPU 的 PyTorch PP 与 PD | 两台主机各使用一张 H20，经应用专用 SSH 中继传输激活或 KV。重组后的两个模型均与单卡对照逐个生成相同的 5 个 token，两端载荷哈希一致。这组实验用于验证分布式采集和传递结果。 |
 | 跨节点 RDMA | ib_write_bw 的 64 KiB WRITE 测得主存到主存 41.36 GB/s、GPU 到远端主存 47.34 GB/s。后者源和目的端口各约 47.82 GB/s。校准记录注明缓冲区位置和方向。 |
+
+双卡 AllReduce 样例还使用与 trace 相同的 NCCL 2.30.7、同一对 GPU、同一 Socket 路径运行 nccl-tests。截取的 Decode 窗口中，两个 rank 各有 57 个事件能按操作、载荷和布局匹配实测分母。[查看通信样例](../examples/h20-allreduce.html)
 
 ## 采集时服务会慢多少
 

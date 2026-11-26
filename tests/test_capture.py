@@ -116,6 +116,14 @@ class CaptureTest(unittest.TestCase):
         )
         self.assertIsNone(matmul_work("aten::mm", {"Input Dims": [[2, 3], [2, 3]]}))
 
+    def test_integer_gemm_reports_operations_and_skips_mixed_inputs(self):
+        args = {"Input Dims": [[4, 8], [8, 2]], "Input type": ["signed char", "signed char"]}
+        work = matmul_work("aten::_int_mm", args)
+        self.assertEqual((work["operations"], work["rate_unit"]), (128, "TOP/s"))
+        self.assertNotIn("flops", work)
+        args["Input type"] = ["float8_e4m3fn", "float8_e5m2"]
+        self.assertIsNone(matmul_work("aten::_scaled_mm", args))
+
     def test_worker_only_transfers_new_native_outputs(self):
         with TemporaryDirectory() as tmp:
             c = Capture(tmp, "fixture")

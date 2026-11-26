@@ -1834,6 +1834,9 @@ function load(data) {
     fmt(bounds[1] - bounds[0]) +
     " · " +
     (data.aligned ? "capture time" : "independent trace origins");
+  if (data.status === "failed") {
+    $("summary").textContent += " · Incomplete capture — see collection details";
+  }
   if (Object.keys(data.timing || {}).length > 1) {
     const worst = Math.max(
       ...Object.values(data.timing).map((x) => x.max_error_us),
@@ -1845,6 +1848,10 @@ function load(data) {
     {
       engine: data.engine,
       status: data.status,
+      error: data.error || undefined,
+      collectionErrors: data.collection_errors?.length ? data.collection_errors : undefined,
+      missingDeviceActivity: data.traces.filter(t => t.device_activity_unavailable)
+        .map(t => ({rank: t.rank, reason: t.device_activity_unavailable})),
       aligned: data.aligned,
       clockAlignment: data.alignment_note,
       telemetry: data.telemetry,
@@ -1971,9 +1978,9 @@ function refresh() {
         kind: "counter",
       });
     }
-  resources(hw);
+  resources(hw, mode);
   transferDetails();
-  computeResources(rank);
+  if (["overview", "hardware", "kernel"].includes(mode)) computeResources(rank);
   if (mode === "communication") collectiveResources(rank);
   if (report.transfers?.length && ["overview", "communication"].includes(mode))
     groups.set("kv-handoff", {
@@ -2036,24 +2043,17 @@ function deviceLabel(c) {
     (id == null ? c.device : "GPU " + id)
   );
 }
-function resources(hw) {
+function resources(hw, mode) {
   const panel = $("rates"),
     root = $("metrics");
   root.replaceChildren();
   panel.hidden = !hw.length;
   for (const c of hw) {
-    if (
-      ![
-        "hbm.read",
-        "hbm.write",
-        "hbm.total_estimated",
-        "tensor.active",
-        "nvlink.tx",
-        "pcie.tx",
-        "rdma.tx",
-      ].includes(c.metric)
-    )
-      continue;
+    const primary = ["hbm.read", "hbm.write", "hbm.total_estimated",
+      "tensor.active", "nvlink.tx", "pcie.tx", "rdma.tx", "netdev.tx"];
+    if (mode === "communication" && !/^(nvlink|pcie|rdma|netdev)\./.test(c.metric)) continue;
+    if (!["hardware", "communication"].includes(mode) &&
+        (mode !== "overview" || !primary.includes(c.metric))) continue;
     let area = 0,
       covered = 0;
     for (const [end, value, start] of c.points) {
@@ -2147,7 +2147,8 @@ function computeResources(rank) {
       let g = stats.get(key);
       if (!g) {
         g = {
-          flops: 0,
+          operations: 0,
+          unit: e.gemm.rate_unit || "TFLOP/s",
           duration: 0,
           count: 0,
           dtype: e.gemm.dtype,
@@ -2156,19 +2157,19 @@ function computeResources(rank) {
         };
         stats.set(key, g);
       }
-      g.flops += e.gemm.flops;
+      g.operations += e.gemm.operations ?? e.gemm.flops;
       g.duration += e.dur;
       g.count++;
     }
     for (const g of stats.values()) {
-      const rate = g.flops / g.duration / 1e6,
+      const rate = g.operations / g.duration / 1e6,
         b = document.createElement("button"),
         label = document.createElement("small"),
         v = document.createElement("strong"),
         fraction = document.createElement("span");
       b.className = "metric";
       label.textContent = rankLabel(t.rank) + " · " + g.dtype + " GEMM";
-      v.textContent = rate.toFixed(2) + " TFLOP/s";
+      v.textContent = rate.toFixed(2) + " " + g.unit;
       fraction.textContent = g.ref
         ? ((100 * rate) / g.ref.value).toFixed(1) + "% of GEMM reference"
         : "";
@@ -2176,7 +2177,7 @@ function computeResources(rank) {
       b.onclick = () =>
         details("Shape-derived GEMM throughput", {
           "Matched kernels": g.count,
-          "Estimated FLOPs": g.flops,
+          [g.unit === "TOP/s" ? "Estimated integer operations" : "Estimated FLOPs"]: g.operations,
           "Sum of GPU kernel durations": fmt(g.duration),
           "Measured GEMM reference": g.ref,
           Scope:

@@ -22,7 +22,7 @@ serveutil capture --engine sglang --topology deployment.json \
 
 普通分布式引擎使用一个控制端点，分别从每台 worker 主机收集文件。PD 分离把生成请求送到 router，直接在 Prefill 和 Decode 端点开始和停止录制。[多节点配置样例](../examples/distributed-topology.json) · [PD 配置样例](../examples/pd-topology.json)
 
-- `targets` 列出实际提供 profiling API 的服务。每个条目可有 `url`、`role`、`output_dir`（SGLang 进程看到的路径）、`key_env` 和请求超时 `timeout`。凭据从指定环境变量读取。
+- `targets` 列出实际提供 profiling API 的服务。每个条目可有 `url`、`role`、`output_dir`（SGLang 进程看到的路径）、`key_env` 和请求超时 `timeout`。凭据从指定环境变量读取。SGLang 默认录制算子与 GPU 事件，需要 Python 调用栈时可在对应 target 添加 `"with_stack": true`；完整调用栈会增加导出时间与文件体积。
 - `client_url` 是生成请求的基础 URL。生成器自动读取模型名，也可以通过 `--model` 指定，尤其适用于未提供模型枚举的 PD router。
 - `nodes` 列出采集器进程。每个节点安装同一版本的 ServeUtil。`command` 是启动 `python -m serveutil.worker` 的参数数组，支持本机、SSH 和容器命令。标准输出用作数据通道。每个 rank 的 trace 由一个节点负责，共享目录应按实际写入范围配置。
 - 每个节点的 `roots` 填写角色、worker 可见的 trace 目录和预期 rank 数。`workdir` 存放节点临时样本和选用的标定缓存。`devices` 可以限制采样设备。`device_map` 可明确将 Kineto 本地设备号映射到 GPU UUID，用于多 GPU 的算力基线查找。
@@ -30,9 +30,15 @@ serveutil capture --engine sglang --topology deployment.json \
 - 节点可配置 `calibrate: true` 或 `calibration_file`。拓扑的 `links` 数组可加入基线测量配置。独立标定入口是 `serveutil calibrate --link link.json -o network-reference.json`。[网络配置样例](../examples/link.json)
 - SGLang 请求级 KV 关联可在拓扑中加 `transfers` 指向 OpenTelemetry 采集文件或描述文件，路径相对于拓扑 JSON。vLLM 在配置了角色的 PD 端点上读取可用的 NixlConnector 指标。
 
+### 标定两台机器之间的 RDMA 带宽
+
+在两个端点安装支持目标内存类型的 perftest，把样例中的测试地址和 `rdma_port` 替换为实际地址和 HCA 端口（例如 `ibstat` 列出的设备及端口号）。运行 `serveutil calibrate --link examples/rdma-link.json -o network-reference.json` 会得到有效载荷 GB/s，以及两端有可用计数器时的端口 GB/s。[RDMA WRITE 配置样例](../examples/rdma-link.json)
+
+默认两端使用主存。在源端增加 `"cuda_device": 0` 可测 GPU 到远端主存；两端都指定 CUDA 序号可测试 GPU 到 GPU，具体取决于两端的 GPUDirect RDMA 支持。若可执行文件不在 PATH，可在对应端点设置 `perftest` 为支持 CUDA 的 `ib_write_bw` 绝对路径。
+
 ## 采集包
 
-命令返回本轮的 `report.html`。原始 trace、压缩硬件样本、配置结果、节点时钟和可用性在同一目录。可用 `serveutil report CAPTURE -o report.html` 重建页面，或用 `serveutil export CAPTURE -o overview.json` 输出供 Perfetto 打开的多轨概览。设备权限或接口不足的原因见页面底部的采集详情。
+命令返回本轮的 `report.html`。原始 trace、压缩硬件样本、配置结果、节点时钟和可用性在同一目录。可用 `serveutil report CAPTURE -o report.html` 重建页面，或用 `serveutil export CAPTURE -o overview.json` 输出供 Perfetto 打开的多轨概览。设备权限或接口不足的原因见页面底部的采集详情。使用内置请求生成器时，采集器在导出前等在途请求结束。若部分端点导出失败，采集包记录错误，并用已回收的有效 trace 生成可诊断的报告。
 
 浏览器与桌面查看器可直接打开 ServeUtil HTML、report JSON 和 PyTorch JSON/gzip。直接打开原始 trace 时以已有事件及 counter 绘图；离线 report 命令另行执行关联和优化机会分析。安装 `.[llmperfscope]` 后，还可用 report 命令读取 llmperfscope 的 run 目录，复用其阶段和原始设备采样。[llmperfscope 格式](https://github.com/developer0hye/llmperfscope/blob/main/docs/run-json.md)
 

@@ -94,7 +94,7 @@ class Workload:
                 Request(self.url + "/models", headers=self.headers), timeout=30
             ) as response:
                 self.model = json.load(response)["data"][0]["id"]
-        # Warm up the actual routed service, then keep workers active through export.
+        # Warm up the actual routed service, then keep workers active for the recording window.
         self.complete()
         for _ in range(self.concurrency):
             thread = threading.Thread(target=self.worker, daemon=True)

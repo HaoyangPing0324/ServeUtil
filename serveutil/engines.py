@@ -19,7 +19,11 @@ def control(target, engine, start):
     route = "start_profile" if start else "stop_profile"
     body = {}
     if start and engine == "sglang":
-        body = {"activities": ["CPU", "GPU"], "detailed_annotations": True}
+        body = {
+            "activities": ["CPU", "GPU"],
+            "detailed_annotations": True,
+            "with_stack": target.get("with_stack", False),
+        }
         if target.get("output_dir"):
             body["output_dir"] = target["output_dir"]
     headers = {"Content-Type": "application/json"}
@@ -48,6 +52,18 @@ def control(target, engine, start):
 def map_all(fn, items):
     with ThreadPoolExecutor(max_workers=len(items)) as executor:
         return list(executor.map(fn, items))
+
+
+def _recover_all(fn, items):
+    """Finish each independent teardown operation even if a peer fails."""
+
+    def attempt(item):
+        try:
+            return fn(item), None
+        except Exception as exc:
+            return None, exc
+
+    return map_all(attempt, items)
 
 
 class Worker:
@@ -227,6 +243,15 @@ def capture_engine(
 
     session = Capture(output, engine)
     workers = []
+    running_load = None
+    errors = []
+
+    def drain_load():
+        nonlocal running_load
+        if running_load is not None:
+            current, running_load = running_load, None
+            session.manifest["workload"] = current.stop()
+
     try:
         link_results = []
         if links:
@@ -239,6 +264,7 @@ def capture_engine(
             workers.append(Worker(node))
         map_all(lambda worker: worker.start(interval_ms), workers)
         if workload:
+            running_load = workload
             workload.start()
         from .transfers import nixl_deltas, snapshot_nixl
 
@@ -268,6 +294,9 @@ def capture_engine(
         try:
             session.manifest["start"] = map_all(start, targets)
             time.sleep(seconds)
+            # Some engines suspend scheduling while serializing their trace.
+            # Finish outstanding requests while all serving roles can still run.
+            drain_load()
             if kv_targets:
                 kv_after = map_all(snapshot_nixl, kv_targets)
                 session.manifest["kv_metrics"] = [
@@ -276,17 +305,25 @@ def capture_engine(
                     for row in nixl_deltas(before, after)
                 ]
         finally:
-            if cleanup:
-                session.manifest["stop"] = map_all(
-                    lambda t: control(t, engine, False), cleanup
-                )
-        if workload:
-            session.manifest["workload"] = workload.stop()
-            workload.check()
+            try:
+                drain_load()
+            finally:
+                if cleanup:
+                    stops = _recover_all(lambda t: control(t, engine, False), cleanup)
+                    session.manifest["stop"] = [
+                        value for value, err in stops if err is None
+                    ]
+                    for endpoint, (_, err) in zip(cleanup, stops):
+                        if err is not None:
+                            errors.append(f"{endpoint['url']} stop_profile: {err}")
         session.manifest["nodes"] = []
-        for worker, (records, meta) in zip(
-            workers, map_all(lambda w: w.collect(session), workers)
+        for worker, (result, err) in zip(
+            workers, _recover_all(lambda w: w.collect(session), workers)
         ):
+            if err is not None:
+                errors.append(f"{worker.name} collection: {err}")
+                continue
+            records, meta = result
             session.manifest["traces"].extend(records)
             port_rows = [
                 r
@@ -312,7 +349,7 @@ def capture_engine(
                     if r["role"] == root["role"] and not r["auxiliary"]
                 }
                 if len(ranks) < root.get("ranks", 1):
-                    raise ValueError(
+                    errors.append(
                         f"{worker.name}/{root['role']}: only {len(ranks)} worker traces collected"
                     )
         if transfers:
@@ -321,12 +358,27 @@ def capture_engine(
             transfer_file = session.path / "transfers.json"
             write_json(transfer_file, load_transfers(transfers))
             session.manifest["transfers"] = transfer_file.name
+        if workload:
+            workload.check()
+        if errors:
+            raise RuntimeError("; ".join(errors))
         session.finish()
         return session.path
     except BaseException as exc:
-        if workload:
-            session.manifest["workload"] = workload.stop()
-        session.finish(exc)
+        try:
+            drain_load()
+        finally:
+            if errors:
+                session.manifest["collection_errors"] = errors
+            session.finish(exc)
+            if session.manifest["traces"]:
+                from .report import render
+
+                try:
+                    render(session.path, session.path / "report.html")
+                except Exception as rendering_error:
+                    session.manifest["report_error"] = str(rendering_error)
+                    session.save()
         raise
     finally:
         for worker in workers:

@@ -103,11 +103,26 @@ def export_capture(directory, output):
             name="process_name",
             args={"name": "Optimization opportunities"},
         )
+        finding_lanes = {}
         for f in data["findings"]:
+            lane = (f.get("rank"), f.get("device"), f.get("metric"), f["name"])
+            if lane not in finding_lanes:
+                finding_lanes[lane] = len(finding_lanes) + 1
+                yield dict(
+                    ph="M",
+                    pid=idx,
+                    tid=finding_lanes[lane],
+                    name="thread_name",
+                    args={
+                        "name": " · ".join(
+                            str(item) for item in lane if item is not None
+                        )
+                    },
+                )
             yield dict(
                 ph="X",
                 pid=idx,
-                tid=0,
+                tid=finding_lanes[lane],
                 ts=f["ts"],
                 dur=f["dur"],
                 name=f["name"],
@@ -117,17 +132,37 @@ def export_capture(directory, output):
 
         if data.get("transfers") or data.get("kv_metrics"):
             idx += 1
-            yield dict(ph="M", pid=idx, tid=0, name="process_name", args={"name": "KV transfers"})
+            yield dict(
+                ph="M",
+                pid=idx,
+                tid=0,
+                name="process_name",
+                args={"name": "KV transfers"},
+            )
             for i, row in enumerate(data.get("transfers", []), 1):
                 yield dict(
-                    ph="X", pid=idx, tid=i, ts=row["ts"], dur=row["dur"],
-                    name="KV handoff", cat="kv_transfer", args=row,
+                    ph="X",
+                    pid=idx,
+                    tid=i,
+                    ts=row["ts"],
+                    dur=row["dur"],
+                    name="KV handoff",
+                    cat="kv_transfer",
+                    args=row,
                 )
-            for i, row in enumerate(data.get("kv_metrics", []), 1 + len(data.get("transfers", []))):
+            for i, row in enumerate(
+                data.get("kv_metrics", []), 1 + len(data.get("transfers", []))
+            ):
                 if row.get("status") == "ok" and "ts" in row:
                     yield dict(
-                        ph="X", pid=idx, tid=i, ts=row["ts"], dur=row["dur"],
-                        name=f'{row["role"]} · NIXL counter interval', cat="kv_interval", args=row,
+                        ph="X",
+                        pid=idx,
+                        tid=i,
+                        ts=row["ts"],
+                        dur=row["dur"],
+                        name=f"{row['role']} · NIXL counter interval",
+                        cat="kv_interval",
+                        args=row,
                     )
 
     with tempfile.NamedTemporaryFile(
