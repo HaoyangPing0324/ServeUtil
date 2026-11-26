@@ -163,6 +163,9 @@ class _Network:
                 continue
             now = self.sink.now()
             previous = self.previous.get(key)
+            # Preserve the byte delta when two polls fall on the same clock tick.
+            if previous and now == previous[0] and value >= previous[1]:
+                continue
             self.previous[key] = now, value
             if previous is None:
                 continue
@@ -426,7 +429,7 @@ class TelemetrySampler:
             )
 
     def now(self):
-        return self._wall + (time.monotonic_ns() - self._mono)
+        return self._wall + (time.perf_counter_ns() - self._mono)
 
     def emit(
         self, metric, label, unit, device, scope, source, start, end, value, **details
@@ -457,7 +460,7 @@ class TelemetrySampler:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         opener = gzip.open if self.path.suffix == ".gz" else open
         self._stream = opener(self.path, "xt", encoding="utf-8")
-        self._mono = time.monotonic_ns()
+        self._mono = time.perf_counter_ns()
         self._wall = time.time_ns()
         self.metadata["start_ns"] = self._wall
         try:

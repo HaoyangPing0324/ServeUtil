@@ -23,10 +23,16 @@ class MeasurementTests(unittest.TestCase):
                 file.write_text("10")
             self.assertEqual([c[3] for c in rdma_counters(root)], [1, 4])
             path = root / "samples.jsonl.gz"
-            with patch.dict("os.environ", {"SERVEUTIL_RDMA_ROOT": str(root)}):
+            # Exercise same-tick counter updates as well as a later sample.
+            ticks = iter((10, 10, 10, 10, 20, 20, 30, 30, 40))
+            with (
+                patch.dict("os.environ", {"SERVEUTIL_RDMA_ROOT": str(root)}),
+                patch.object(TelemetrySampler, "now", side_effect=ticks),
+            ):
                 sampler = TelemetrySampler(path, devices=[], interval_ms=60_000).start()
                 hw.write_text("90")
                 rx.write_text("30")
+                sampler._sample()
                 sampler._sample()
                 hw.write_text("2")  # reset: skip this window only
                 metadata = sampler.stop()

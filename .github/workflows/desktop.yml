@@ -25,7 +25,9 @@ jobs:
       - if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libxcb-cursor0 libxkbcommon-x11-0 libegl1
+          sudo apt-get install -y xvfb libegl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-randr0 libxcb-shape0 libxcb-xinerama0
+          xcb=$(python -c "import sysconfig; from pathlib import Path; print(next(Path(sysconfig.get_paths()['purelib']).rglob('libqxcb.so')))")
+          ldd "$xcb"
           xvfb-run -a python packaging/smoke_viewer.py
         env:
           QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
