@@ -1,0 +1,2597 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ServeUtil · Trace viewer</title><style>:root {
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  color: #172e39;
+  background: #f3f6f7;
+  font-size: 14px;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header,
+main {
+  padding-inline: clamp(16px, 4vw, 76px);
+}
+header {
+  height: 62px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  background: #152f3e;
+  color: white;
+}
+.brand {
+  font-size: 20px;
+  letter-spacing: -0.6px;
+}
+.muted {
+  color: #b8cdd7;
+}
+header label {
+  margin-left: auto;
+}
+main {
+  max-width: 1800px;
+  margin: auto;
+  padding-bottom: 30px;
+}
+.title,
+.controls,
+.chartHead,
+.foot,
+.zoom,
+.legend {
+  display: flex;
+  align-items: center;
+}
+.title {
+  justify-content: space-between;
+  padding: 25px 0 16px;
+}
+h1 {
+  font-size: clamp(24px, 3vw, 36px);
+  letter-spacing: -1.3px;
+  margin: 0;
+}
+p {
+  color: #49616e;
+  margin: 6px 0 0;
+}
+.button,
+button,
+select {
+  font: inherit;
+  border: 1px solid #c2d1d6;
+  border-radius: 5px;
+  background: white;
+  color: inherit;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.primary {
+  background: #d8f2e9;
+  color: #123e3e;
+  border: 0;
+  font-weight: 650;
+}
+.button input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.button:focus-within,
+button:focus-visible,
+select:focus-visible {
+  outline: 3px solid #11a895;
+}
+button:disabled {
+  opacity: 0.5;
+}
+.controls {
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.controls label {
+  font-size: 12px;
+  color: #48616b;
+}
+.controls select {
+  margin-left: 6px;
+  font-size: 13px;
+  max-width: 235px;
+}
+.zoom {
+  margin-left: auto;
+  gap: 4px;
+}
+.chart,
+.bottom section,
+details {
+  border: 1px solid #cdd9dd;
+  background: #fff;
+  border-radius: 7px;
+  overflow: hidden;
+}
+.chartHead,
+.foot {
+  padding: 12px 16px;
+  justify-content: space-between;
+  gap: 12px;
+}
+.chartHead {
+  border-bottom: 1px solid #dae3e7;
+}
+h2 {
+  font-size: 15px;
+  letter-spacing: -0.2px;
+  margin: 0;
+}
+.legend {
+  gap: 12px;
+  font-size: 11px;
+  color: #3c515c;
+  flex-wrap: wrap;
+}
+.legend span:before {
+  content: "";
+  background: #087e81;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 4px;
+}
+.legend span:nth-child(2):before {
+  background: #8458b3;
+}
+.legend span:nth-child(3):before {
+  background: #4283ab;
+}
+.legend span:nth-child(4):before {
+  background: #cb7132;
+  transform: rotate(45deg);
+}
+#scroller {
+  overflow: auto;
+  max-height: 62vh;
+  min-height: 150px;
+}
+canvas {
+  display: block;
+  width: 100%;
+  touch-action: none;
+}
+.foot {
+  font-size: 11px;
+  color: #526974;
+  border-top: 1px solid #dae3e7;
+}
+.bottom {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+.bottom section,
+details {
+  padding: 15px;
+}
+.bottom h2 {
+  margin: 0 0 12px;
+}
+em {
+  font-size: 12px;
+  font-style: normal;
+  color: #666;
+}
+.issue {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  border: 0;
+  border-top: 1px solid #e4eaed;
+  border-radius: 0;
+  padding: 8px 0;
+}
+.issue:before {
+  content: "◆";
+  font-size: 11px;
+  color: #aa5823;
+}
+.issue small {
+  margin-left: auto;
+  color: #526974;
+}
+#issues,
+#details {
+  max-height: 260px;
+  overflow: auto;
+  font-size: 13px;
+}
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 5px 12px;
+  margin: 8px 0;
+}
+dt {
+  color: #5b6f79;
+}
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+details {
+  margin-top: 14px;
+}
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+[hidden] {
+  display: none !important;
+}
+@media (max-width: 760px) {
+  .bottom {
+    grid-template-columns: 1fr;
+  }
+  .legend {
+    gap: 6px;
+  }
+  .controls {
+    gap: 6px;
+  }
+  .muted {
+    display: none;
+  }
+}
+#rates {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: white;
+  border: 1px solid #cdd9dd;
+  border-radius: 7px;
+}
+#metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+.metric {
+  text-align: left;
+  display: grid;
+  gap: 3px;
+  align-items: start;
+  min-width: 125px;
+  padding: 7px 10px;
+  background: #f6faf9;
+  border-color: #dce5e4;
+}
+.metric small {
+  font-size: 11px;
+  color: #4f646c;
+}
+.metric strong {
+  font-size: 16px;
+  color: #195854;
+}
+.metric span {
+  font-size: 11px;
+}
+#kvSection {
+  margin-top: 14px;
+  background: #fff;
+  padding: 14px 16px;
+  border: 1px solid #cdd9dd;
+  border-radius: 7px;
+}
+#kvTable {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 7px;
+}
+.kv-item {
+  text-align: left;
+  background: #f7f5fa;
+  color: #654588;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.brand img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  border-radius: 5px;
+  background: #f4f8f7;
+  padding: 3px;
+}
+
+.welcome { display: none; }
+.empty main > :not(.welcome) { display: none; }
+.empty header .button { visibility: hidden; }
+.empty .welcome { display: grid; justify-items: start; align-content: center; min-height: 56vh; gap: 12px; max-width: 620px; margin: 4vh auto; padding: 27px; }
+.welcome h1 { font-size: clamp(32px, 5vw, 52px); }
+.welcome p { line-height: 1.55; font-size: 16px; }
+.welcome button { background: #124952; color: white; border: 0; padding: 10px 20px; }
+.welcome a { color: #145e68; margin-right: 18px; }
+.welcome small { color: #546975; }
+body.dragging main { outline: 2px dashed #0a817e; outline-offset: -6px; }
+</style></head>
+<body class="empty"><header><b class="brand"><img src="data:image/png;base64,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" alt="">ServeUtil</b><span class="muted">Trace viewer</span><label class="button primary">Open trace<input id="file" type="file" accept=".html,.json,.gz"></label></header>
+<main><section class="welcome" aria-labelledby="intro"><h1 id="intro">Open a trace</h1><p>Drop a PyTorch trace or a ServeUtil report here to explore the timeline.</p><button type="button" id="choose">Choose a file</button><small>Chrome trace JSON · gzip · ServeUtil HTML</small><nav id="examples" aria-label="Example traces"><a href="h20-decode.html">Qwen3 decode on H20</a><a href="h20-allreduce.html">SGLang AllReduce on two H20s</a></nav><p id="importStatus" role="status"></p></section><div class="title"><div><h1 id="title">Inference timeline</h1><p id="summary" aria-live="polite">Open a ServeUtil report to inspect a capture.</p></div><button id="png" disabled>Export image</button></div>
+<section class="controls" aria-label="View settings"><label>View<select id="view"><option value="overview">Stages &amp; resources</option><option value="stage">Stages only</option><option value="hardware">Hardware counters</option><option value="operator">Operator depth</option><option value="kernel">GPU kernels</option><option value="communication">Communication</option></select></label>
+<label id="depthControl" hidden>Depth<select id="depth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="leaf">Leaf only</option></select></label><label>Rank<select id="rank"><option value="">All ranks</option></select></label>
+<label>Interval<select id="interval"><option value="">Full capture</option></select></label><div class="zoom"><button id="minus" aria-label="Zoom out">−</button><button id="plus" aria-label="Zoom in">+</button><button id="fit">Fit</button></div></section>
+<section class="chart"><div class="chartHead"><h2>Timeline</h2><div class="legend"><span>Compute</span><span>Communication</span><span>Copy</span><span>Opportunity</span></div></div>
+<div id="scroller"><canvas id="chart" aria-label="Activity timeline, drag horizontally to select an interval" tabindex="0"></canvas></div><div class="foot"><span id="range"></span><span>Drag to zoom · Click to inspect</span></div></section>
+<section id="kvSection" hidden><h2>KV transfers</h2><div id="kvTable"></div></section><section id="rates" hidden><h2>Resources in selection</h2><div id="metrics"></div></section><div class="bottom"><section><h2>Optimization opportunities <em id="issueCount"></em></h2><div id="issues"></div></section><section><h2>Selection details</h2><div id="details">Select an event, sample or highlighted interval.</div></section></div>
+<details><summary>Capture and metric availability</summary><pre id="metadata"></pre></details></main>
+<script id="import-worker" type="text/plain">/*MIT License
+
+Copyright (c) 2020 Juanjo Diaz
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+(() => {
+  // node_modules/@streamparser/json/dist/mjs/utils/utf-8.js
+  var charset;
+  (function(charset2) {
+    charset2[charset2["BACKSPACE"] = 8] = "BACKSPACE";
+    charset2[charset2["FORM_FEED"] = 12] = "FORM_FEED";
+    charset2[charset2["NEWLINE"] = 10] = "NEWLINE";
+    charset2[charset2["CARRIAGE_RETURN"] = 13] = "CARRIAGE_RETURN";
+    charset2[charset2["TAB"] = 9] = "TAB";
+    charset2[charset2["SPACE"] = 32] = "SPACE";
+    charset2[charset2["EXCLAMATION_MARK"] = 33] = "EXCLAMATION_MARK";
+    charset2[charset2["QUOTATION_MARK"] = 34] = "QUOTATION_MARK";
+    charset2[charset2["NUMBER_SIGN"] = 35] = "NUMBER_SIGN";
+    charset2[charset2["DOLLAR_SIGN"] = 36] = "DOLLAR_SIGN";
+    charset2[charset2["PERCENT_SIGN"] = 37] = "PERCENT_SIGN";
+    charset2[charset2["AMPERSAND"] = 38] = "AMPERSAND";
+    charset2[charset2["APOSTROPHE"] = 39] = "APOSTROPHE";
+    charset2[charset2["LEFT_PARENTHESIS"] = 40] = "LEFT_PARENTHESIS";
+    charset2[charset2["RIGHT_PARENTHESIS"] = 41] = "RIGHT_PARENTHESIS";
+    charset2[charset2["ASTERISK"] = 42] = "ASTERISK";
+    charset2[charset2["PLUS_SIGN"] = 43] = "PLUS_SIGN";
+    charset2[charset2["COMMA"] = 44] = "COMMA";
+    charset2[charset2["HYPHEN_MINUS"] = 45] = "HYPHEN_MINUS";
+    charset2[charset2["FULL_STOP"] = 46] = "FULL_STOP";
+    charset2[charset2["SOLIDUS"] = 47] = "SOLIDUS";
+    charset2[charset2["DIGIT_ZERO"] = 48] = "DIGIT_ZERO";
+    charset2[charset2["DIGIT_ONE"] = 49] = "DIGIT_ONE";
+    charset2[charset2["DIGIT_TWO"] = 50] = "DIGIT_TWO";
+    charset2[charset2["DIGIT_THREE"] = 51] = "DIGIT_THREE";
+    charset2[charset2["DIGIT_FOUR"] = 52] = "DIGIT_FOUR";
+    charset2[charset2["DIGIT_FIVE"] = 53] = "DIGIT_FIVE";
+    charset2[charset2["DIGIT_SIX"] = 54] = "DIGIT_SIX";
+    charset2[charset2["DIGIT_SEVEN"] = 55] = "DIGIT_SEVEN";
+    charset2[charset2["DIGIT_EIGHT"] = 56] = "DIGIT_EIGHT";
+    charset2[charset2["DIGIT_NINE"] = 57] = "DIGIT_NINE";
+    charset2[charset2["COLON"] = 58] = "COLON";
+    charset2[charset2["SEMICOLON"] = 59] = "SEMICOLON";
+    charset2[charset2["LESS_THAN_SIGN"] = 60] = "LESS_THAN_SIGN";
+    charset2[charset2["EQUALS_SIGN"] = 61] = "EQUALS_SIGN";
+    charset2[charset2["GREATER_THAN_SIGN"] = 62] = "GREATER_THAN_SIGN";
+    charset2[charset2["QUESTION_MARK"] = 63] = "QUESTION_MARK";
+    charset2[charset2["COMMERCIAL_AT"] = 64] = "COMMERCIAL_AT";
+    charset2[charset2["LATIN_CAPITAL_LETTER_A"] = 65] = "LATIN_CAPITAL_LETTER_A";
+    charset2[charset2["LATIN_CAPITAL_LETTER_B"] = 66] = "LATIN_CAPITAL_LETTER_B";
+    charset2[charset2["LATIN_CAPITAL_LETTER_C"] = 67] = "LATIN_CAPITAL_LETTER_C";
+    charset2[charset2["LATIN_CAPITAL_LETTER_D"] = 68] = "LATIN_CAPITAL_LETTER_D";
+    charset2[charset2["LATIN_CAPITAL_LETTER_E"] = 69] = "LATIN_CAPITAL_LETTER_E";
+    charset2[charset2["LATIN_CAPITAL_LETTER_F"] = 70] = "LATIN_CAPITAL_LETTER_F";
+    charset2[charset2["LATIN_CAPITAL_LETTER_G"] = 71] = "LATIN_CAPITAL_LETTER_G";
+    charset2[charset2["LATIN_CAPITAL_LETTER_H"] = 72] = "LATIN_CAPITAL_LETTER_H";
+    charset2[charset2["LATIN_CAPITAL_LETTER_I"] = 73] = "LATIN_CAPITAL_LETTER_I";
+    charset2[charset2["LATIN_CAPITAL_LETTER_J"] = 74] = "LATIN_CAPITAL_LETTER_J";
+    charset2[charset2["LATIN_CAPITAL_LETTER_K"] = 75] = "LATIN_CAPITAL_LETTER_K";
+    charset2[charset2["LATIN_CAPITAL_LETTER_L"] = 76] = "LATIN_CAPITAL_LETTER_L";
+    charset2[charset2["LATIN_CAPITAL_LETTER_M"] = 77] = "LATIN_CAPITAL_LETTER_M";
+    charset2[charset2["LATIN_CAPITAL_LETTER_N"] = 78] = "LATIN_CAPITAL_LETTER_N";
+    charset2[charset2["LATIN_CAPITAL_LETTER_O"] = 79] = "LATIN_CAPITAL_LETTER_O";
+    charset2[charset2["LATIN_CAPITAL_LETTER_P"] = 80] = "LATIN_CAPITAL_LETTER_P";
+    charset2[charset2["LATIN_CAPITAL_LETTER_Q"] = 81] = "LATIN_CAPITAL_LETTER_Q";
+    charset2[charset2["LATIN_CAPITAL_LETTER_R"] = 82] = "LATIN_CAPITAL_LETTER_R";
+    charset2[charset2["LATIN_CAPITAL_LETTER_S"] = 83] = "LATIN_CAPITAL_LETTER_S";
+    charset2[charset2["LATIN_CAPITAL_LETTER_T"] = 84] = "LATIN_CAPITAL_LETTER_T";
+    charset2[charset2["LATIN_CAPITAL_LETTER_U"] = 85] = "LATIN_CAPITAL_LETTER_U";
+    charset2[charset2["LATIN_CAPITAL_LETTER_V"] = 86] = "LATIN_CAPITAL_LETTER_V";
+    charset2[charset2["LATIN_CAPITAL_LETTER_W"] = 87] = "LATIN_CAPITAL_LETTER_W";
+    charset2[charset2["LATIN_CAPITAL_LETTER_X"] = 88] = "LATIN_CAPITAL_LETTER_X";
+    charset2[charset2["LATIN_CAPITAL_LETTER_Y"] = 89] = "LATIN_CAPITAL_LETTER_Y";
+    charset2[charset2["LATIN_CAPITAL_LETTER_Z"] = 90] = "LATIN_CAPITAL_LETTER_Z";
+    charset2[charset2["LEFT_SQUARE_BRACKET"] = 91] = "LEFT_SQUARE_BRACKET";
+    charset2[charset2["REVERSE_SOLIDUS"] = 92] = "REVERSE_SOLIDUS";
+    charset2[charset2["RIGHT_SQUARE_BRACKET"] = 93] = "RIGHT_SQUARE_BRACKET";
+    charset2[charset2["CIRCUMFLEX_ACCENT"] = 94] = "CIRCUMFLEX_ACCENT";
+    charset2[charset2["LOW_LINE"] = 95] = "LOW_LINE";
+    charset2[charset2["GRAVE_ACCENT"] = 96] = "GRAVE_ACCENT";
+    charset2[charset2["LATIN_SMALL_LETTER_A"] = 97] = "LATIN_SMALL_LETTER_A";
+    charset2[charset2["LATIN_SMALL_LETTER_B"] = 98] = "LATIN_SMALL_LETTER_B";
+    charset2[charset2["LATIN_SMALL_LETTER_C"] = 99] = "LATIN_SMALL_LETTER_C";
+    charset2[charset2["LATIN_SMALL_LETTER_D"] = 100] = "LATIN_SMALL_LETTER_D";
+    charset2[charset2["LATIN_SMALL_LETTER_E"] = 101] = "LATIN_SMALL_LETTER_E";
+    charset2[charset2["LATIN_SMALL_LETTER_F"] = 102] = "LATIN_SMALL_LETTER_F";
+    charset2[charset2["LATIN_SMALL_LETTER_G"] = 103] = "LATIN_SMALL_LETTER_G";
+    charset2[charset2["LATIN_SMALL_LETTER_H"] = 104] = "LATIN_SMALL_LETTER_H";
+    charset2[charset2["LATIN_SMALL_LETTER_I"] = 105] = "LATIN_SMALL_LETTER_I";
+    charset2[charset2["LATIN_SMALL_LETTER_J"] = 106] = "LATIN_SMALL_LETTER_J";
+    charset2[charset2["LATIN_SMALL_LETTER_K"] = 107] = "LATIN_SMALL_LETTER_K";
+    charset2[charset2["LATIN_SMALL_LETTER_L"] = 108] = "LATIN_SMALL_LETTER_L";
+    charset2[charset2["LATIN_SMALL_LETTER_M"] = 109] = "LATIN_SMALL_LETTER_M";
+    charset2[charset2["LATIN_SMALL_LETTER_N"] = 110] = "LATIN_SMALL_LETTER_N";
+    charset2[charset2["LATIN_SMALL_LETTER_O"] = 111] = "LATIN_SMALL_LETTER_O";
+    charset2[charset2["LATIN_SMALL_LETTER_P"] = 112] = "LATIN_SMALL_LETTER_P";
+    charset2[charset2["LATIN_SMALL_LETTER_Q"] = 113] = "LATIN_SMALL_LETTER_Q";
+    charset2[charset2["LATIN_SMALL_LETTER_R"] = 114] = "LATIN_SMALL_LETTER_R";
+    charset2[charset2["LATIN_SMALL_LETTER_S"] = 115] = "LATIN_SMALL_LETTER_S";
+    charset2[charset2["LATIN_SMALL_LETTER_T"] = 116] = "LATIN_SMALL_LETTER_T";
+    charset2[charset2["LATIN_SMALL_LETTER_U"] = 117] = "LATIN_SMALL_LETTER_U";
+    charset2[charset2["LATIN_SMALL_LETTER_V"] = 118] = "LATIN_SMALL_LETTER_V";
+    charset2[charset2["LATIN_SMALL_LETTER_W"] = 119] = "LATIN_SMALL_LETTER_W";
+    charset2[charset2["LATIN_SMALL_LETTER_X"] = 120] = "LATIN_SMALL_LETTER_X";
+    charset2[charset2["LATIN_SMALL_LETTER_Y"] = 121] = "LATIN_SMALL_LETTER_Y";
+    charset2[charset2["LATIN_SMALL_LETTER_Z"] = 122] = "LATIN_SMALL_LETTER_Z";
+    charset2[charset2["LEFT_CURLY_BRACKET"] = 123] = "LEFT_CURLY_BRACKET";
+    charset2[charset2["VERTICAL_LINE"] = 124] = "VERTICAL_LINE";
+    charset2[charset2["RIGHT_CURLY_BRACKET"] = 125] = "RIGHT_CURLY_BRACKET";
+    charset2[charset2["TILDE"] = 126] = "TILDE";
+  })(charset || (charset = {}));
+  var escapedSequences = {
+    [charset.QUOTATION_MARK]: charset.QUOTATION_MARK,
+    [charset.REVERSE_SOLIDUS]: charset.REVERSE_SOLIDUS,
+    [charset.SOLIDUS]: charset.SOLIDUS,
+    [charset.LATIN_SMALL_LETTER_B]: charset.BACKSPACE,
+    [charset.LATIN_SMALL_LETTER_F]: charset.FORM_FEED,
+    [charset.LATIN_SMALL_LETTER_N]: charset.NEWLINE,
+    [charset.LATIN_SMALL_LETTER_R]: charset.CARRIAGE_RETURN,
+    [charset.LATIN_SMALL_LETTER_T]: charset.TAB
+  };
+
+  // node_modules/@streamparser/json/dist/mjs/utils/bufferedString.js
+  var NonBufferedString = class {
+    constructor() {
+      this.decoder = new TextDecoder("utf-8");
+      this.strings = [];
+      this.byteLength = 0;
+    }
+    appendChar(char) {
+      this.strings.push(String.fromCharCode(char));
+      this.byteLength += 1;
+    }
+    appendBuf(buf, start = 0, end = buf.length) {
+      this.strings.push(this.decoder.decode(buf.subarray(start, end)));
+      this.byteLength += end - start;
+    }
+    reset() {
+      this.strings = [];
+      this.byteLength = 0;
+    }
+    toString() {
+      return this.strings.join("");
+    }
+  };
+  var BufferedString = class {
+    constructor(bufferSize) {
+      this.decoder = new TextDecoder("utf-8");
+      this.bufferOffset = 0;
+      this.string = "";
+      this.byteLength = 0;
+      this.buffer = new Uint8Array(bufferSize);
+    }
+    appendChar(char) {
+      if (this.bufferOffset >= this.buffer.length)
+        this.flushStringBuffer();
+      this.buffer[this.bufferOffset++] = char;
+      this.byteLength += 1;
+    }
+    appendBuf(buf, start = 0, end = buf.length) {
+      const size = end - start;
+      if (this.bufferOffset + size > this.buffer.length)
+        this.flushStringBuffer();
+      this.buffer.set(buf.subarray(start, end), this.bufferOffset);
+      this.bufferOffset += size;
+      this.byteLength += size;
+    }
+    flushStringBuffer() {
+      this.string += this.decoder.decode(this.buffer.subarray(0, this.bufferOffset));
+      this.bufferOffset = 0;
+    }
+    reset() {
+      this.string = "";
+      this.bufferOffset = 0;
+      this.byteLength = 0;
+    }
+    toString() {
+      this.flushStringBuffer();
+      return this.string;
+    }
+  };
+
+  // node_modules/@streamparser/json/dist/mjs/utils/types/tokenType.js
+  var TokenType;
+  (function(TokenType2) {
+    TokenType2[TokenType2["LEFT_BRACE"] = 0] = "LEFT_BRACE";
+    TokenType2[TokenType2["RIGHT_BRACE"] = 1] = "RIGHT_BRACE";
+    TokenType2[TokenType2["LEFT_BRACKET"] = 2] = "LEFT_BRACKET";
+    TokenType2[TokenType2["RIGHT_BRACKET"] = 3] = "RIGHT_BRACKET";
+    TokenType2[TokenType2["COLON"] = 4] = "COLON";
+    TokenType2[TokenType2["COMMA"] = 5] = "COMMA";
+    TokenType2[TokenType2["TRUE"] = 6] = "TRUE";
+    TokenType2[TokenType2["FALSE"] = 7] = "FALSE";
+    TokenType2[TokenType2["NULL"] = 8] = "NULL";
+    TokenType2[TokenType2["STRING"] = 9] = "STRING";
+    TokenType2[TokenType2["NUMBER"] = 10] = "NUMBER";
+    TokenType2[TokenType2["SEPARATOR"] = 11] = "SEPARATOR";
+  })(TokenType || (TokenType = {}));
+  var tokenType_default = TokenType;
+
+  // node_modules/@streamparser/json/dist/mjs/tokenizer.js
+  var TokenizerStates;
+  (function(TokenizerStates2) {
+    TokenizerStates2[TokenizerStates2["START"] = 0] = "START";
+    TokenizerStates2[TokenizerStates2["ENDED"] = 1] = "ENDED";
+    TokenizerStates2[TokenizerStates2["ERROR"] = 2] = "ERROR";
+    TokenizerStates2[TokenizerStates2["TRUE1"] = 3] = "TRUE1";
+    TokenizerStates2[TokenizerStates2["TRUE2"] = 4] = "TRUE2";
+    TokenizerStates2[TokenizerStates2["TRUE3"] = 5] = "TRUE3";
+    TokenizerStates2[TokenizerStates2["FALSE1"] = 6] = "FALSE1";
+    TokenizerStates2[TokenizerStates2["FALSE2"] = 7] = "FALSE2";
+    TokenizerStates2[TokenizerStates2["FALSE3"] = 8] = "FALSE3";
+    TokenizerStates2[TokenizerStates2["FALSE4"] = 9] = "FALSE4";
+    TokenizerStates2[TokenizerStates2["NULL1"] = 10] = "NULL1";
+    TokenizerStates2[TokenizerStates2["NULL2"] = 11] = "NULL2";
+    TokenizerStates2[TokenizerStates2["NULL3"] = 12] = "NULL3";
+    TokenizerStates2[TokenizerStates2["STRING_DEFAULT"] = 13] = "STRING_DEFAULT";
+    TokenizerStates2[TokenizerStates2["STRING_AFTER_BACKSLASH"] = 14] = "STRING_AFTER_BACKSLASH";
+    TokenizerStates2[TokenizerStates2["STRING_UNICODE_DIGIT_1"] = 15] = "STRING_UNICODE_DIGIT_1";
+    TokenizerStates2[TokenizerStates2["STRING_UNICODE_DIGIT_2"] = 16] = "STRING_UNICODE_DIGIT_2";
+    TokenizerStates2[TokenizerStates2["STRING_UNICODE_DIGIT_3"] = 17] = "STRING_UNICODE_DIGIT_3";
+    TokenizerStates2[TokenizerStates2["STRING_UNICODE_DIGIT_4"] = 18] = "STRING_UNICODE_DIGIT_4";
+    TokenizerStates2[TokenizerStates2["STRING_INCOMPLETE_CHAR"] = 19] = "STRING_INCOMPLETE_CHAR";
+    TokenizerStates2[TokenizerStates2["NUMBER_AFTER_INITIAL_MINUS"] = 20] = "NUMBER_AFTER_INITIAL_MINUS";
+    TokenizerStates2[TokenizerStates2["NUMBER_AFTER_INITIAL_ZERO"] = 21] = "NUMBER_AFTER_INITIAL_ZERO";
+    TokenizerStates2[TokenizerStates2["NUMBER_AFTER_INITIAL_NON_ZERO"] = 22] = "NUMBER_AFTER_INITIAL_NON_ZERO";
+    TokenizerStates2[TokenizerStates2["NUMBER_AFTER_FULL_STOP"] = 23] = "NUMBER_AFTER_FULL_STOP";
+    TokenizerStates2[TokenizerStates2["NUMBER_AFTER_DECIMAL"] = 24] = "NUMBER_AFTER_DECIMAL";
+    TokenizerStates2[TokenizerStates2["NUMBER_AFTER_E"] = 25] = "NUMBER_AFTER_E";
+    TokenizerStates2[TokenizerStates2["NUMBER_AFTER_E_AND_SIGN"] = 26] = "NUMBER_AFTER_E_AND_SIGN";
+    TokenizerStates2[TokenizerStates2["NUMBER_AFTER_E_AND_DIGIT"] = 27] = "NUMBER_AFTER_E_AND_DIGIT";
+    TokenizerStates2[TokenizerStates2["SEPARATOR"] = 28] = "SEPARATOR";
+    TokenizerStates2[TokenizerStates2["BOM_OR_START"] = 29] = "BOM_OR_START";
+    TokenizerStates2[TokenizerStates2["BOM"] = 30] = "BOM";
+  })(TokenizerStates || (TokenizerStates = {}));
+  function TokenizerStateToString(tokenizerState) {
+    return [
+      "START",
+      "ENDED",
+      "ERROR",
+      "TRUE1",
+      "TRUE2",
+      "TRUE3",
+      "FALSE1",
+      "FALSE2",
+      "FALSE3",
+      "FALSE4",
+      "NULL1",
+      "NULL2",
+      "NULL3",
+      "STRING_DEFAULT",
+      "STRING_AFTER_BACKSLASH",
+      "STRING_UNICODE_DIGIT_1",
+      "STRING_UNICODE_DIGIT_2",
+      "STRING_UNICODE_DIGIT_3",
+      "STRING_UNICODE_DIGIT_4",
+      "STRING_INCOMPLETE_CHAR",
+      "NUMBER_AFTER_INITIAL_MINUS",
+      "NUMBER_AFTER_INITIAL_ZERO",
+      "NUMBER_AFTER_INITIAL_NON_ZERO",
+      "NUMBER_AFTER_FULL_STOP",
+      "NUMBER_AFTER_DECIMAL",
+      "NUMBER_AFTER_E",
+      "NUMBER_AFTER_E_AND_SIGN",
+      "NUMBER_AFTER_E_AND_DIGIT",
+      "SEPARATOR",
+      "BOM_OR_START",
+      "BOM"
+    ][tokenizerState];
+  }
+  var defaultOpts = {
+    stringBufferSize: 0,
+    numberBufferSize: 0,
+    separator: void 0,
+    emitPartialTokens: false
+  };
+  var TokenizerError = class _TokenizerError extends Error {
+    constructor(message) {
+      super(message);
+      Object.setPrototypeOf(this, _TokenizerError.prototype);
+    }
+  };
+  var Tokenizer = class {
+    constructor(opts) {
+      this.state = TokenizerStates.BOM_OR_START;
+      this.bomIndex = 0;
+      this.separatorIndex = 0;
+      this.escapedCharsByteLength = 0;
+      this.bytes_remaining = 0;
+      this.bytes_in_sequence = 0;
+      this.char_split_buffer = new Uint8Array(4);
+      this.encoder = new TextEncoder();
+      this.offset = -1;
+      opts = Object.assign(Object.assign({}, defaultOpts), opts);
+      this.emitPartialTokens = opts.emitPartialTokens === true;
+      this.bufferedString = opts.stringBufferSize && opts.stringBufferSize > 4 ? new BufferedString(opts.stringBufferSize) : new NonBufferedString();
+      this.bufferedNumber = opts.numberBufferSize && opts.numberBufferSize > 0 ? new BufferedString(opts.numberBufferSize) : new NonBufferedString();
+      this.separator = opts.separator;
+      this.separatorBytes = opts.separator ? this.encoder.encode(opts.separator) : void 0;
+    }
+    get isEnded() {
+      return this.state === TokenizerStates.ENDED;
+    }
+    write(input) {
+      try {
+        let buffer;
+        if (input instanceof Uint8Array) {
+          buffer = input;
+        } else if (typeof input === "string") {
+          buffer = this.encoder.encode(input);
+        } else if (Array.isArray(input)) {
+          buffer = Uint8Array.from(input);
+        } else if (ArrayBuffer.isView(input)) {
+          buffer = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+        } else {
+          throw new TypeError("Unexpected type. The `write` function only accepts Arrays, TypedArrays and Strings.");
+        }
+        for (let i = 0; i < buffer.length; i += 1) {
+          const n = buffer[i];
+          switch (this.state) {
+            // @ts-expect-error fall through case
+            case TokenizerStates.BOM_OR_START:
+              if (input instanceof Uint8Array && n === 239) {
+                this.bom = [239, 187, 191];
+                this.bomIndex += 1;
+                this.state = TokenizerStates.BOM;
+                continue;
+              }
+              if (input instanceof Uint16Array) {
+                if (n === 254) {
+                  this.bom = [254, 255];
+                  this.bomIndex += 1;
+                  this.state = TokenizerStates.BOM;
+                  continue;
+                }
+                if (n === 255) {
+                  this.bom = [255, 254];
+                  this.bomIndex += 1;
+                  this.state = TokenizerStates.BOM;
+                  continue;
+                }
+              }
+              if (input instanceof Uint32Array) {
+                if (n === 0) {
+                  this.bom = [0, 0, 254, 255];
+                  this.bomIndex += 1;
+                  this.state = TokenizerStates.BOM;
+                  continue;
+                }
+                if (n === 255) {
+                  this.bom = [255, 254, 0, 0];
+                  this.bomIndex += 1;
+                  this.state = TokenizerStates.BOM;
+                  continue;
+                }
+              }
+            // eslint-disable-next-line no-fallthrough
+            case TokenizerStates.START:
+              this.offset += 1;
+              if (this.separatorBytes && n === this.separatorBytes[0]) {
+                if (this.separatorBytes.length === 1) {
+                  this.state = TokenizerStates.START;
+                  this.onToken({
+                    token: tokenType_default.SEPARATOR,
+                    value: this.separator,
+                    offset: this.offset + this.separatorBytes.length - 1
+                  });
+                  continue;
+                }
+                this.state = TokenizerStates.SEPARATOR;
+                continue;
+              }
+              if (n === charset.SPACE || n === charset.NEWLINE || n === charset.CARRIAGE_RETURN || n === charset.TAB) {
+                continue;
+              }
+              if (n === charset.LEFT_CURLY_BRACKET) {
+                this.onToken({
+                  token: tokenType_default.LEFT_BRACE,
+                  value: "{",
+                  offset: this.offset
+                });
+                continue;
+              }
+              if (n === charset.RIGHT_CURLY_BRACKET) {
+                this.onToken({
+                  token: tokenType_default.RIGHT_BRACE,
+                  value: "}",
+                  offset: this.offset
+                });
+                continue;
+              }
+              if (n === charset.LEFT_SQUARE_BRACKET) {
+                this.onToken({
+                  token: tokenType_default.LEFT_BRACKET,
+                  value: "[",
+                  offset: this.offset
+                });
+                continue;
+              }
+              if (n === charset.RIGHT_SQUARE_BRACKET) {
+                this.onToken({
+                  token: tokenType_default.RIGHT_BRACKET,
+                  value: "]",
+                  offset: this.offset
+                });
+                continue;
+              }
+              if (n === charset.COLON) {
+                this.onToken({
+                  token: tokenType_default.COLON,
+                  value: ":",
+                  offset: this.offset
+                });
+                continue;
+              }
+              if (n === charset.COMMA) {
+                this.onToken({
+                  token: tokenType_default.COMMA,
+                  value: ",",
+                  offset: this.offset
+                });
+                continue;
+              }
+              if (n === charset.LATIN_SMALL_LETTER_T) {
+                this.state = TokenizerStates.TRUE1;
+                continue;
+              }
+              if (n === charset.LATIN_SMALL_LETTER_F) {
+                this.state = TokenizerStates.FALSE1;
+                continue;
+              }
+              if (n === charset.LATIN_SMALL_LETTER_N) {
+                this.state = TokenizerStates.NULL1;
+                continue;
+              }
+              if (n === charset.QUOTATION_MARK) {
+                this.bufferedString.reset();
+                this.escapedCharsByteLength = 0;
+                this.state = TokenizerStates.STRING_DEFAULT;
+                continue;
+              }
+              if (n >= charset.DIGIT_ONE && n <= charset.DIGIT_NINE) {
+                this.bufferedNumber.reset();
+                this.bufferedNumber.appendChar(n);
+                this.state = TokenizerStates.NUMBER_AFTER_INITIAL_NON_ZERO;
+                continue;
+              }
+              if (n === charset.DIGIT_ZERO) {
+                this.bufferedNumber.reset();
+                this.bufferedNumber.appendChar(n);
+                this.state = TokenizerStates.NUMBER_AFTER_INITIAL_ZERO;
+                continue;
+              }
+              if (n === charset.HYPHEN_MINUS) {
+                this.bufferedNumber.reset();
+                this.bufferedNumber.appendChar(n);
+                this.state = TokenizerStates.NUMBER_AFTER_INITIAL_MINUS;
+                continue;
+              }
+              break;
+            // STRING
+            case TokenizerStates.STRING_DEFAULT:
+              if (n === charset.QUOTATION_MARK) {
+                const string = this.bufferedString.toString();
+                this.state = TokenizerStates.START;
+                this.onToken({
+                  token: tokenType_default.STRING,
+                  value: string,
+                  offset: this.offset
+                });
+                this.offset += this.escapedCharsByteLength + this.bufferedString.byteLength + 1;
+                continue;
+              }
+              if (n === charset.REVERSE_SOLIDUS) {
+                this.state = TokenizerStates.STRING_AFTER_BACKSLASH;
+                continue;
+              }
+              if (n >= 128) {
+                if (n >= 194 && n <= 223) {
+                  this.bytes_in_sequence = 2;
+                } else if (n <= 239) {
+                  this.bytes_in_sequence = 3;
+                } else {
+                  this.bytes_in_sequence = 4;
+                }
+                if (this.bytes_in_sequence <= buffer.length - i) {
+                  this.bufferedString.appendBuf(buffer, i, i + this.bytes_in_sequence);
+                  i += this.bytes_in_sequence - 1;
+                  continue;
+                }
+                this.bytes_remaining = i + this.bytes_in_sequence - buffer.length;
+                this.char_split_buffer.set(buffer.subarray(i));
+                i = buffer.length - 1;
+                this.state = TokenizerStates.STRING_INCOMPLETE_CHAR;
+                continue;
+              }
+              if (n >= charset.SPACE) {
+                this.bufferedString.appendChar(n);
+                continue;
+              }
+              break;
+            case TokenizerStates.STRING_INCOMPLETE_CHAR:
+              this.char_split_buffer.set(buffer.subarray(i, i + this.bytes_remaining), this.bytes_in_sequence - this.bytes_remaining);
+              this.bufferedString.appendBuf(this.char_split_buffer, 0, this.bytes_in_sequence);
+              i = this.bytes_remaining - 1;
+              this.state = TokenizerStates.STRING_DEFAULT;
+              continue;
+            case TokenizerStates.STRING_AFTER_BACKSLASH:
+              const controlChar = escapedSequences[n];
+              if (controlChar) {
+                this.bufferedString.appendChar(controlChar);
+                this.escapedCharsByteLength += 1;
+                this.state = TokenizerStates.STRING_DEFAULT;
+                continue;
+              }
+              if (n === charset.LATIN_SMALL_LETTER_U) {
+                this.unicode = "";
+                this.state = TokenizerStates.STRING_UNICODE_DIGIT_1;
+                continue;
+              }
+              break;
+            case TokenizerStates.STRING_UNICODE_DIGIT_1:
+            case TokenizerStates.STRING_UNICODE_DIGIT_2:
+            case TokenizerStates.STRING_UNICODE_DIGIT_3:
+              if (n >= charset.DIGIT_ZERO && n <= charset.DIGIT_NINE || n >= charset.LATIN_CAPITAL_LETTER_A && n <= charset.LATIN_CAPITAL_LETTER_F || n >= charset.LATIN_SMALL_LETTER_A && n <= charset.LATIN_SMALL_LETTER_F) {
+                this.unicode += String.fromCharCode(n);
+                this.state += 1;
+                continue;
+              }
+              break;
+            case TokenizerStates.STRING_UNICODE_DIGIT_4:
+              if (n >= charset.DIGIT_ZERO && n <= charset.DIGIT_NINE || n >= charset.LATIN_CAPITAL_LETTER_A && n <= charset.LATIN_CAPITAL_LETTER_F || n >= charset.LATIN_SMALL_LETTER_A && n <= charset.LATIN_SMALL_LETTER_F) {
+                const intVal = parseInt(this.unicode + String.fromCharCode(n), 16);
+                let unicodeString;
+                if (this.highSurrogate === void 0) {
+                  if (intVal >= 55296 && intVal <= 56319) {
+                    this.highSurrogate = intVal;
+                    this.state = TokenizerStates.STRING_DEFAULT;
+                    continue;
+                  } else {
+                    unicodeString = String.fromCharCode(intVal);
+                  }
+                } else {
+                  if (intVal >= 56320 && intVal <= 57343) {
+                    unicodeString = String.fromCharCode(this.highSurrogate, intVal);
+                  } else {
+                    unicodeString = String.fromCharCode(this.highSurrogate);
+                  }
+                  this.highSurrogate = void 0;
+                }
+                const unicodeBuffer = this.encoder.encode(unicodeString);
+                this.bufferedString.appendBuf(unicodeBuffer);
+                this.escapedCharsByteLength += 6 - unicodeBuffer.byteLength;
+                this.state = TokenizerStates.STRING_DEFAULT;
+                continue;
+              }
+              break;
+            // Number
+            case TokenizerStates.NUMBER_AFTER_INITIAL_MINUS:
+              if (n === charset.DIGIT_ZERO) {
+                this.bufferedNumber.appendChar(n);
+                this.state = TokenizerStates.NUMBER_AFTER_INITIAL_ZERO;
+                continue;
+              }
+              if (n >= charset.DIGIT_ONE && n <= charset.DIGIT_NINE) {
+                this.bufferedNumber.appendChar(n);
+                this.state = TokenizerStates.NUMBER_AFTER_INITIAL_NON_ZERO;
+                continue;
+              }
+              break;
+            case TokenizerStates.NUMBER_AFTER_INITIAL_ZERO:
+              if (n === charset.FULL_STOP) {
+                this.bufferedNumber.appendChar(n);
+                this.state = TokenizerStates.NUMBER_AFTER_FULL_STOP;
+                continue;
+              }
+              if (n === charset.LATIN_SMALL_LETTER_E || n === charset.LATIN_CAPITAL_LETTER_E) {
+                this.bufferedNumber.appendChar(n);
+                this.state = TokenizerStates.NUMBER_AFTER_E;
+                continue;
+              }
+              i -= 1;
+              this.state = TokenizerStates.START;
+              this.emitNumber();
+              continue;
+            case TokenizerStates.NUMBER_AFTER_INITIAL_NON_ZERO:
+              if (n >= charset.DIGIT_ZERO && n <= charset.DIGIT_NINE) {
+                this.bufferedNumber.appendChar(n);
+                continue;
+              }
+              if (n === charset.FULL_STOP) {
+                this.bufferedNumber.appendChar(n);
+                this.state = TokenizerStates.NUMBER_AFTER_FULL_STOP;
+                continue;
+              }
+              if (n === charset.LATIN_SMALL_LETTER_E || n === charset.LATIN_CAPITAL_LETTER_E) {
+                this.bufferedNumber.appendChar(n);
+                this.state = TokenizerStates.NUMBER_AFTER_E;
+                continue;
+              }
+              i -= 1;
+              this.state = TokenizerStates.START;
+              this.emitNumber();
+              continue;
+            case TokenizerStates.NUMBER_AFTER_FULL_STOP:
+              if (n >= charset.DIGIT_ZERO && n <= charset.DIGIT_NINE) {
+                this.bufferedNumber.appendChar(n);
+                this.state = TokenizerStates.NUMBER_AFTER_DECIMAL;
+                continue;
+              }
+              break;
+            case TokenizerStates.NUMBER_AFTER_DECIMAL:
+              if (n >= charset.DIGIT_ZERO && n <= charset.DIGIT_NINE) {
+                this.bufferedNumber.appendChar(n);
+                continue;
+              }
+              if (n === charset.LATIN_SMALL_LETTER_E || n === charset.LATIN_CAPITAL_LETTER_E) {
+                this.bufferedNumber.appendChar(n);
+                this.state = TokenizerStates.NUMBER_AFTER_E;
+                continue;
+              }
+              i -= 1;
+              this.state = TokenizerStates.START;
+              this.emitNumber();
+              continue;
+            // @ts-expect-error fall through case
+            case TokenizerStates.NUMBER_AFTER_E:
+              if (n === charset.PLUS_SIGN || n === charset.HYPHEN_MINUS) {
+                this.bufferedNumber.appendChar(n);
+                this.state = TokenizerStates.NUMBER_AFTER_E_AND_SIGN;
+                continue;
+              }
+            // eslint-disable-next-line no-fallthrough
+            case TokenizerStates.NUMBER_AFTER_E_AND_SIGN:
+              if (n >= charset.DIGIT_ZERO && n <= charset.DIGIT_NINE) {
+                this.bufferedNumber.appendChar(n);
+                this.state = TokenizerStates.NUMBER_AFTER_E_AND_DIGIT;
+                continue;
+              }
+              break;
+            case TokenizerStates.NUMBER_AFTER_E_AND_DIGIT:
+              if (n >= charset.DIGIT_ZERO && n <= charset.DIGIT_NINE) {
+                this.bufferedNumber.appendChar(n);
+                continue;
+              }
+              i -= 1;
+              this.state = TokenizerStates.START;
+              this.emitNumber();
+              continue;
+            // TRUE
+            case TokenizerStates.TRUE1:
+              if (n === charset.LATIN_SMALL_LETTER_R) {
+                this.state = TokenizerStates.TRUE2;
+                continue;
+              }
+              break;
+            case TokenizerStates.TRUE2:
+              if (n === charset.LATIN_SMALL_LETTER_U) {
+                this.state = TokenizerStates.TRUE3;
+                continue;
+              }
+              break;
+            case TokenizerStates.TRUE3:
+              if (n === charset.LATIN_SMALL_LETTER_E) {
+                this.state = TokenizerStates.START;
+                this.onToken({
+                  token: tokenType_default.TRUE,
+                  value: true,
+                  offset: this.offset
+                });
+                this.offset += 3;
+                continue;
+              }
+              break;
+            // FALSE
+            case TokenizerStates.FALSE1:
+              if (n === charset.LATIN_SMALL_LETTER_A) {
+                this.state = TokenizerStates.FALSE2;
+                continue;
+              }
+              break;
+            case TokenizerStates.FALSE2:
+              if (n === charset.LATIN_SMALL_LETTER_L) {
+                this.state = TokenizerStates.FALSE3;
+                continue;
+              }
+              break;
+            case TokenizerStates.FALSE3:
+              if (n === charset.LATIN_SMALL_LETTER_S) {
+                this.state = TokenizerStates.FALSE4;
+                continue;
+              }
+              break;
+            case TokenizerStates.FALSE4:
+              if (n === charset.LATIN_SMALL_LETTER_E) {
+                this.state = TokenizerStates.START;
+                this.onToken({
+                  token: tokenType_default.FALSE,
+                  value: false,
+                  offset: this.offset
+                });
+                this.offset += 4;
+                continue;
+              }
+              break;
+            // NULL
+            case TokenizerStates.NULL1:
+              if (n === charset.LATIN_SMALL_LETTER_U) {
+                this.state = TokenizerStates.NULL2;
+                continue;
+              }
+              break;
+            case TokenizerStates.NULL2:
+              if (n === charset.LATIN_SMALL_LETTER_L) {
+                this.state = TokenizerStates.NULL3;
+                continue;
+              }
+              break;
+            case TokenizerStates.NULL3:
+              if (n === charset.LATIN_SMALL_LETTER_L) {
+                this.state = TokenizerStates.START;
+                this.onToken({
+                  token: tokenType_default.NULL,
+                  value: null,
+                  offset: this.offset
+                });
+                this.offset += 3;
+                continue;
+              }
+              break;
+            case TokenizerStates.SEPARATOR:
+              this.separatorIndex += 1;
+              if (!this.separatorBytes || n !== this.separatorBytes[this.separatorIndex]) {
+                break;
+              }
+              if (this.separatorIndex === this.separatorBytes.length - 1) {
+                this.state = TokenizerStates.START;
+                this.onToken({
+                  token: tokenType_default.SEPARATOR,
+                  value: this.separator,
+                  offset: this.offset + this.separatorIndex
+                });
+                this.separatorIndex = 0;
+              }
+              continue;
+            // BOM support
+            case TokenizerStates.BOM:
+              if (n === this.bom[this.bomIndex]) {
+                if (this.bomIndex === this.bom.length - 1) {
+                  this.state = TokenizerStates.START;
+                  this.bom = void 0;
+                  this.bomIndex = 0;
+                  continue;
+                }
+                this.bomIndex += 1;
+                continue;
+              }
+              break;
+            case TokenizerStates.ENDED:
+              if (n === charset.SPACE || n === charset.NEWLINE || n === charset.CARRIAGE_RETURN || n === charset.TAB) {
+                continue;
+              }
+          }
+          throw new TokenizerError(`Unexpected "${String.fromCharCode(n)}" at position "${i}" in state ${TokenizerStateToString(this.state)}`);
+        }
+        if (this.emitPartialTokens) {
+          switch (this.state) {
+            case TokenizerStates.TRUE1:
+            case TokenizerStates.TRUE2:
+            case TokenizerStates.TRUE3:
+              this.onToken({
+                token: tokenType_default.TRUE,
+                value: true,
+                offset: this.offset,
+                partial: true
+              });
+              break;
+            case TokenizerStates.FALSE1:
+            case TokenizerStates.FALSE2:
+            case TokenizerStates.FALSE3:
+            case TokenizerStates.FALSE4:
+              this.onToken({
+                token: tokenType_default.FALSE,
+                value: false,
+                offset: this.offset,
+                partial: true
+              });
+              break;
+            case TokenizerStates.NULL1:
+            case TokenizerStates.NULL2:
+            case TokenizerStates.NULL3:
+              this.onToken({
+                token: tokenType_default.NULL,
+                value: null,
+                offset: this.offset,
+                partial: true
+              });
+              break;
+            case TokenizerStates.STRING_DEFAULT: {
+              const string = this.bufferedString.toString();
+              this.onToken({
+                token: tokenType_default.STRING,
+                value: string,
+                offset: this.offset,
+                partial: true
+              });
+              break;
+            }
+            case TokenizerStates.NUMBER_AFTER_INITIAL_ZERO:
+            case TokenizerStates.NUMBER_AFTER_INITIAL_NON_ZERO:
+            case TokenizerStates.NUMBER_AFTER_DECIMAL:
+            case TokenizerStates.NUMBER_AFTER_E_AND_DIGIT:
+              try {
+                this.onToken({
+                  token: tokenType_default.NUMBER,
+                  value: this.parseNumber(this.bufferedNumber.toString()),
+                  offset: this.offset,
+                  partial: true
+                });
+              } catch (_a) {
+              }
+          }
+        }
+      } catch (err) {
+        this.error(err);
+      }
+    }
+    emitNumber() {
+      this.onToken({
+        token: tokenType_default.NUMBER,
+        value: this.parseNumber(this.bufferedNumber.toString()),
+        offset: this.offset
+      });
+      this.offset += this.bufferedNumber.byteLength - 1;
+    }
+    parseNumber(numberStr) {
+      return Number(numberStr);
+    }
+    error(err) {
+      if (this.state !== TokenizerStates.ENDED) {
+        this.state = TokenizerStates.ERROR;
+      }
+      this.onError(err);
+    }
+    end() {
+      switch (this.state) {
+        case TokenizerStates.NUMBER_AFTER_INITIAL_ZERO:
+        case TokenizerStates.NUMBER_AFTER_INITIAL_NON_ZERO:
+        case TokenizerStates.NUMBER_AFTER_DECIMAL:
+        case TokenizerStates.NUMBER_AFTER_E_AND_DIGIT:
+          this.state = TokenizerStates.ENDED;
+          this.emitNumber();
+          this.onEnd();
+          break;
+        case TokenizerStates.BOM_OR_START:
+        case TokenizerStates.START:
+        case TokenizerStates.ERROR:
+        case TokenizerStates.SEPARATOR:
+          this.state = TokenizerStates.ENDED;
+          this.onEnd();
+          break;
+        default:
+          this.error(new TokenizerError(`Tokenizer ended in the middle of a token (state: ${TokenizerStateToString(this.state)}). Either not all the data was received or the data was invalid.`));
+      }
+    }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    onToken(parsedToken) {
+      throw new TokenizerError(`Can't emit tokens before the "onToken" callback has been set up.`);
+    }
+    onError(err) {
+      throw err;
+    }
+    onEnd() {
+    }
+  };
+
+  // node_modules/@streamparser/json/dist/mjs/utils/types/stackElement.js
+  var TokenParserMode;
+  (function(TokenParserMode2) {
+    TokenParserMode2[TokenParserMode2["OBJECT"] = 0] = "OBJECT";
+    TokenParserMode2[TokenParserMode2["ARRAY"] = 1] = "ARRAY";
+  })(TokenParserMode || (TokenParserMode = {}));
+
+  // node_modules/@streamparser/json/dist/mjs/tokenparser.js
+  var TokenParserState;
+  (function(TokenParserState2) {
+    TokenParserState2[TokenParserState2["VALUE"] = 0] = "VALUE";
+    TokenParserState2[TokenParserState2["KEY"] = 1] = "KEY";
+    TokenParserState2[TokenParserState2["COLON"] = 2] = "COLON";
+    TokenParserState2[TokenParserState2["COMMA"] = 3] = "COMMA";
+    TokenParserState2[TokenParserState2["ENDED"] = 4] = "ENDED";
+    TokenParserState2[TokenParserState2["ERROR"] = 5] = "ERROR";
+    TokenParserState2[TokenParserState2["SEPARATOR"] = 6] = "SEPARATOR";
+  })(TokenParserState || (TokenParserState = {}));
+  function TokenParserStateToString(state) {
+    return ["VALUE", "KEY", "COLON", "COMMA", "ENDED", "ERROR", "SEPARATOR"][state];
+  }
+  var defaultOpts2 = {
+    paths: void 0,
+    keepStack: true,
+    separator: void 0,
+    emitPartialValues: false
+  };
+  var TokenParserError = class _TokenParserError extends Error {
+    constructor(message) {
+      super(message);
+      Object.setPrototypeOf(this, _TokenParserError.prototype);
+    }
+  };
+  var TokenParser = class {
+    constructor(opts) {
+      this.state = TokenParserState.VALUE;
+      this.mode = void 0;
+      this.key = void 0;
+      this.value = void 0;
+      this.stack = [];
+      opts = Object.assign(Object.assign({}, defaultOpts2), opts);
+      if (opts.paths) {
+        this.paths = opts.paths.map((path) => {
+          if (path === void 0 || path === "$*")
+            return void 0;
+          if (!path.startsWith("$"))
+            throw new TokenParserError(`Invalid selector "${path}". Should start with "$".`);
+          const pathParts = path.split(".").slice(1);
+          if (pathParts.includes(""))
+            throw new TokenParserError(`Invalid selector "${path}". ".." syntax not supported.`);
+          return pathParts;
+        });
+      }
+      this.keepStack = opts.keepStack || false;
+      this.separator = opts.separator;
+      if (!opts.emitPartialValues) {
+        this.emitPartial = () => {
+        };
+      }
+    }
+    shouldEmit() {
+      if (!this.paths)
+        return true;
+      return this.paths.some((path) => {
+        var _a;
+        if (path === void 0)
+          return true;
+        if (path.length !== this.stack.length)
+          return false;
+        for (let i = 0; i < path.length - 1; i++) {
+          const selector2 = path[i];
+          const key = this.stack[i + 1].key;
+          if (selector2 === "*")
+            continue;
+          if (selector2 !== (key === null || key === void 0 ? void 0 : key.toString()))
+            return false;
+        }
+        const selector = path[path.length - 1];
+        if (selector === "*")
+          return true;
+        return selector === ((_a = this.key) === null || _a === void 0 ? void 0 : _a.toString());
+      });
+    }
+    push() {
+      this.stack.push({
+        key: this.key,
+        value: this.value,
+        mode: this.mode,
+        emit: this.shouldEmit()
+      });
+    }
+    pop() {
+      const value = this.value;
+      let emit;
+      ({
+        key: this.key,
+        value: this.value,
+        mode: this.mode,
+        emit
+      } = this.stack.pop());
+      this.state = this.mode !== void 0 ? TokenParserState.COMMA : TokenParserState.VALUE;
+      this.emit(value, emit);
+    }
+    emit(value, emit) {
+      if (!this.keepStack && this.value && this.stack.every((item) => !item.emit)) {
+        delete this.value[this.key];
+      }
+      if (emit) {
+        this.onValue({
+          value,
+          key: this.key,
+          parent: this.value,
+          stack: this.stack
+        });
+      }
+      if (this.stack.length === 0) {
+        if (this.separator) {
+          this.state = TokenParserState.SEPARATOR;
+        } else if (this.separator === void 0) {
+          this.end();
+        }
+      }
+    }
+    emitPartial(value) {
+      if (!this.shouldEmit())
+        return;
+      if (this.state === TokenParserState.KEY) {
+        this.onValue({
+          value: void 0,
+          key: value,
+          parent: this.value,
+          stack: this.stack,
+          partial: true
+        });
+        return;
+      }
+      this.onValue({
+        value,
+        key: this.key,
+        parent: this.value,
+        stack: this.stack,
+        partial: true
+      });
+    }
+    get isEnded() {
+      return this.state === TokenParserState.ENDED;
+    }
+    write({ token, value, partial }) {
+      try {
+        if (partial) {
+          this.emitPartial(value);
+          return;
+        }
+        if (this.state === TokenParserState.VALUE) {
+          if (token === tokenType_default.STRING || token === tokenType_default.NUMBER || token === tokenType_default.TRUE || token === tokenType_default.FALSE || token === tokenType_default.NULL) {
+            if (this.mode === TokenParserMode.OBJECT) {
+              this.value[this.key] = value;
+              this.state = TokenParserState.COMMA;
+            } else if (this.mode === TokenParserMode.ARRAY) {
+              this.value.push(value);
+              this.state = TokenParserState.COMMA;
+            }
+            this.emit(value, this.shouldEmit());
+            return;
+          }
+          if (token === tokenType_default.LEFT_BRACE) {
+            this.push();
+            if (this.mode === TokenParserMode.OBJECT) {
+              this.value = this.value[this.key] = {};
+            } else if (this.mode === TokenParserMode.ARRAY) {
+              const val = {};
+              this.value.push(val);
+              this.value = val;
+            } else {
+              this.value = {};
+            }
+            this.mode = TokenParserMode.OBJECT;
+            this.state = TokenParserState.KEY;
+            this.key = void 0;
+            this.emitPartial();
+            return;
+          }
+          if (token === tokenType_default.LEFT_BRACKET) {
+            this.push();
+            if (this.mode === TokenParserMode.OBJECT) {
+              this.value = this.value[this.key] = [];
+            } else if (this.mode === TokenParserMode.ARRAY) {
+              const val = [];
+              this.value.push(val);
+              this.value = val;
+            } else {
+              this.value = [];
+            }
+            this.mode = TokenParserMode.ARRAY;
+            this.state = TokenParserState.VALUE;
+            this.key = 0;
+            this.emitPartial();
+            return;
+          }
+          if (this.mode === TokenParserMode.ARRAY && token === tokenType_default.RIGHT_BRACKET && this.value.length === 0) {
+            this.pop();
+            return;
+          }
+        }
+        if (this.state === TokenParserState.KEY) {
+          if (token === tokenType_default.STRING) {
+            this.key = value;
+            this.state = TokenParserState.COLON;
+            this.emitPartial();
+            return;
+          }
+          if (token === tokenType_default.RIGHT_BRACE && Object.keys(this.value).length === 0) {
+            this.pop();
+            return;
+          }
+        }
+        if (this.state === TokenParserState.COLON) {
+          if (token === tokenType_default.COLON) {
+            this.state = TokenParserState.VALUE;
+            return;
+          }
+        }
+        if (this.state === TokenParserState.COMMA) {
+          if (token === tokenType_default.COMMA) {
+            if (this.mode === TokenParserMode.ARRAY) {
+              this.state = TokenParserState.VALUE;
+              this.key += 1;
+              return;
+            }
+            if (this.mode === TokenParserMode.OBJECT) {
+              this.state = TokenParserState.KEY;
+              return;
+            }
+          }
+          if (token === tokenType_default.RIGHT_BRACE && this.mode === TokenParserMode.OBJECT || token === tokenType_default.RIGHT_BRACKET && this.mode === TokenParserMode.ARRAY) {
+            this.pop();
+            return;
+          }
+        }
+        if (this.state === TokenParserState.SEPARATOR) {
+          if (token === tokenType_default.SEPARATOR && value === this.separator) {
+            this.state = TokenParserState.VALUE;
+            return;
+          }
+        }
+        if (token === tokenType_default.SEPARATOR && this.state !== TokenParserState.SEPARATOR && Array.from(value).map((n) => n.charCodeAt(0)).every((n) => n === charset.SPACE || n === charset.NEWLINE || n === charset.CARRIAGE_RETURN || n === charset.TAB)) {
+          return;
+        }
+        throw new TokenParserError(`Unexpected ${tokenType_default[token]} (${JSON.stringify(value)}) in state ${TokenParserStateToString(this.state)}`);
+      } catch (err) {
+        this.error(err);
+      }
+    }
+    error(err) {
+      if (this.state !== TokenParserState.ENDED) {
+        this.state = TokenParserState.ERROR;
+      }
+      this.onError(err);
+    }
+    end() {
+      if (this.state !== TokenParserState.VALUE && this.state !== TokenParserState.SEPARATOR || this.stack.length > 0) {
+        this.error(new Error(`Parser ended in mid-parsing (state: ${TokenParserStateToString(this.state)}). Either not all the data was received or the data was invalid.`));
+      } else {
+        this.state = TokenParserState.ENDED;
+        this.onEnd();
+      }
+    }
+    /* eslint-disable-next-line @typescript-eslint/no-unused-vars */
+    onValue(parsedElementInfo) {
+      throw new TokenParserError(`Can't emit data before the "onValue" callback has been set up.`);
+    }
+    onError(err) {
+      throw err;
+    }
+    onEnd() {
+    }
+  };
+
+  // node_modules/@streamparser/json/dist/mjs/jsonparser.js
+  var JSONParser = class {
+    constructor(opts = {}) {
+      this.tokenizer = new Tokenizer(opts);
+      this.tokenParser = new TokenParser(opts);
+      this.tokenizer.onToken = this.tokenParser.write.bind(this.tokenParser);
+      this.tokenizer.onEnd = () => {
+        if (!this.tokenParser.isEnded)
+          this.tokenParser.end();
+      };
+      this.tokenParser.onError = this.tokenizer.error.bind(this.tokenizer);
+      this.tokenParser.onEnd = () => {
+        if (!this.tokenizer.isEnded)
+          this.tokenizer.end();
+      };
+    }
+    get isEnded() {
+      return this.tokenizer.isEnded && this.tokenParser.isEnded;
+    }
+    write(input) {
+      this.tokenizer.write(input);
+    }
+    end() {
+      this.tokenizer.end();
+    }
+    set onToken(cb) {
+      this.tokenizer.onToken = (parsedToken) => {
+        cb(parsedToken);
+        this.tokenParser.write(parsedToken);
+      };
+    }
+    set onValue(cb) {
+      this.tokenParser.onValue = cb;
+    }
+    set onError(cb) {
+      this.tokenizer.onError = cb;
+    }
+    set onEnd(cb) {
+      this.tokenParser.onEnd = () => {
+        if (!this.tokenizer.isEnded)
+          this.tokenizer.end();
+        cb.call(this.tokenParser);
+      };
+    }
+  };
+
+  // src/import.js
+  self.onmessage = async ({ data: file }) => {
+    try {
+      let stream = file.stream();
+      if (file.name.endsWith(".gz")) {
+        stream = stream.pipeThrough(new DecompressionStream("gzip"));
+      }
+      const reader = stream.getReader();
+      const events = [], counters = /* @__PURE__ */ new Map(), stack = /* @__PURE__ */ new Map();
+      let origin = Infinity, count = 0;
+      const parser = new JSONParser({
+        paths: ["$.traceEvents.*"],
+        keepStack: false
+      });
+      parser.onValue = ({ value: e }) => {
+        count++;
+        if (!e || !Number.isFinite(e.ts)) return;
+        const lane = String(e.tid ?? ""), track = String(e.pid ?? "");
+        const key = track + "/" + lane;
+        if (e.ph === "C") {
+          for (const [field, val] of Object.entries(e.args || {})) {
+            if (!Number.isFinite(val)) continue;
+            const name2 = field === "value" ? e.name : e.name + " \xB7 " + field;
+            const id = key + "/" + name2;
+            if (!counters.has(id))
+              counters.set(id, {
+                name: name2,
+                device: track,
+                lane,
+                source: "Trace counter",
+                points: []
+              });
+            counters.get(id).points.push([e.ts, val]);
+            origin = Math.min(origin, e.ts);
+          }
+          return;
+        }
+        if (e.ph === "B") {
+          if (!stack.has(key)) stack.set(key, []);
+          stack.get(key).push(e);
+          return;
+        }
+        if (e.ph === "E") {
+          const begin = stack.get(key)?.pop();
+          if (!begin) return;
+          e = { ...begin, ph: "X", dur: e.ts - begin.ts };
+        }
+        if (e.ph !== "X" || !(e.dur > 0)) return;
+        const cat = (e.cat || "").split(","), name = e.name || "", args = e.args || {};
+        let kind, label = name;
+        if (cat.includes("kernel")) {
+          kind = /nccl|all.?reduce|all.?gather|reduce.?scatter|all.?to.?all/i.test(
+            name
+          ) ? "communication" : "compute";
+          if (kind === "compute" && /gemm/i.test(name.split("<")[0]))
+            label = "GEMM";
+        } else if (cat.includes("gpu_memcpy") || cat.includes("gpu_memset"))
+          kind = "copy";
+        else if (cat.includes("user_annotation") || cat.includes("gpu_user_annotation"))
+          kind = "stage";
+        else if (cat.includes("cpu_op")) kind = "operator";
+        else return;
+        const event = {
+          kind,
+          name: label,
+          ts: e.ts,
+          dur: e.dur,
+          device: String(args.device ?? track),
+          lane
+        };
+        if (kind === "stage") {
+          event.domain = cat.includes("gpu_user_annotation") ? "GPU" : "CPU";
+          const sg = /^step\[(EXTEND|DECODE|PREFILL|MIXED)\b/i.exec(name);
+          const vl = /^execute_context_(\d+)\(\d+\)_generation_(\d+)\(\d+\)/.exec(
+            name
+          );
+          if (sg)
+            event.name = {
+              EXTEND: "Prefill",
+              PREFILL: "Prefill",
+              DECODE: "Decode",
+              MIXED: "Mixed batch"
+            }[sg[1].toUpperCase()];
+          if (vl)
+            event.name = Number(vl[1]) ? Number(vl[2]) ? "Mixed batch" : "Prefill" : Number(vl[2]) ? "Decode" : "Idle";
+        }
+        if (name !== event.name) event.original = name;
+        for (const key2 of [
+          "stream",
+          "correlation",
+          "External id",
+          "bytes",
+          "Input Dims",
+          "Input type"
+        ]) {
+          if (args[key2] !== void 0) (event.args ||= {})[key2] = args[key2];
+        }
+        origin = Math.min(origin, e.ts);
+        events.push(event);
+      };
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parser.write(value);
+      }
+      if (!parser.isEnded) parser.end();
+      if (!count) throw Error("No trace events found in this file.");
+      for (const e of events) e.ts -= origin;
+      events.sort((a, b) => a.ts - b.ts || b.dur - a.dur);
+      const series = [...counters.values()];
+      for (const c of series) {
+        for (const p of c.points) p[0] -= origin;
+        c.points.sort((a, b) => a[0] - b[0]);
+      }
+      self.postMessage({
+        schema: "serveutil.report/1",
+        engine: "Imported trace",
+        aligned: true,
+        hardware: [],
+        telemetry: {
+          analysis: "Raw browser import. Use serveutil report for interval findings and correlated GEMM estimates."
+        },
+        findings: [],
+        traces: [{ rank: "0", file: file.name, events, counters: series }]
+      });
+    } catch (e) {
+      self.postMessage({ error: e.message });
+    }
+  };
+})();
+</script><script id="capture-data" type="application/json">null</script><script>"use strict";
+const $ = (id) => document.getElementById(id);
+const canvas = $("chart"),
+  ctx = canvas.getContext("2d");
+const color = {
+  stage: "#385775",
+  compute: "#087e81",
+  communication: "#8458b3",
+  copy: "#4283ab",
+  operator: "#64779c",
+  signal: "#bb632e",
+  counter: "#268b73",
+};
+let report,
+  rows = [],
+  stages = [],
+  items = [],
+  windowStart = 0,
+  windowEnd = 1,
+  bounds = [0, 1],
+  drag = null,
+  targets = [],
+  titleWidth = 200;
+const fmt = (us) =>
+  Math.abs(us) >= 1e6
+    ? (us / 1e6).toFixed(2) + " s"
+    : Math.abs(us) >= 1000
+      ? (us / 1000).toFixed(2) + " ms"
+      : us.toFixed(1) + " µs";
+function option(select, value, label) {
+  const o = document.createElement("option");
+  o.value = value;
+  o.textContent = label;
+  select.append(o);
+}
+function rankLabel(rank) {
+  const t = report?.traces.find((t) => t.rank === rank);
+  if (!t?.node) return "Rank " + rank;
+  const parts = rank.split("/");
+  return (
+    (new Set(report.traces.map((t) => t.node)).size > 1 ? t.node + " / " : "") +
+    (t.role && t.role !== "worker" ? t.role + " / " : "") +
+    "Rank " +
+    parts.at(-1)
+  );
+}
+function short(text, n) {
+  return text.length <= n ? text : text.slice(0, n - 1) + "…";
+}
+function details(title, data) {
+  const root = $("details"),
+    head = document.createElement("strong"),
+    list = document.createElement("dl");
+  root.replaceChildren(head, list);
+  head.textContent = title;
+  for (const [k, v] of Object.entries(data)) {
+    if (v == null) continue;
+    const dt = document.createElement("dt"),
+      dd = document.createElement("dd");
+    dt.textContent = k;
+    dd.textContent = typeof v === "object" ? JSON.stringify(v) : String(v);
+    list.append(dt, dd);
+  }
+}
+function depthOf(events) {
+  const lanes = new Map();
+  for (const e of events) {
+    if (e.kind !== "operator" && e.kind !== "stage") continue;
+    const key = e.kind + "/" + e.device + "/" + e.lane;
+    const stack = lanes.get(key) || [];
+    lanes.set(key, stack);
+    while (
+      stack.length &&
+      (stack.at(-1).ts + stack.at(-1).dur < e.ts + e.dur ||
+        stack.at(-1).ts + stack.at(-1).dur <= e.ts)
+    )
+      stack.pop();
+    if (stack.length) stack.at(-1).leaf = false;
+    e.depth = stack.length + 1;
+    e.leaf = true;
+    stack.push(e);
+  }
+}
+function load(data) {
+  if (data?.schema !== "serveutil.report/1")
+    throw Error("Choose a ServeUtil report (.html or report JSON).");
+  report = data;
+  document.body.classList.remove('empty');
+  $("view").value = data.initial_view === "communication" ? "communication" : "overview";
+  let lo = Infinity,
+    hi = -Infinity;
+  stages = [];
+  $("rank").replaceChildren();
+  option($("rank"), "", "All ranks");
+  const ranks = new Set(),
+    depths = new Set();
+  for (const t of data.traces) {
+    ranks.add(t.rank);
+    depthOf(t.events);
+    t.hasPhases = t.events.some(
+      (e) =>
+        e.kind === "stage" &&
+        /^(Prefill|Decode|Mixed batch|Extend)(?: step|$)/i.test(e.name),
+    );
+    for (const e of t.events) {
+      if (e.depth) depths.add(e.depth);
+      lo = Math.min(lo, e.ts);
+      hi = Math.max(hi, e.ts + e.dur);
+      if (e.kind === "stage") stages.push({ e, rank: t.rank });
+    }
+    for (const c of t.counters) {
+      for (const p of c.points) {
+        lo = Math.min(lo, p[0]);
+        hi = Math.max(hi, p[0]);
+      }
+    }
+  }
+  $("depth").replaceChildren();
+  option($("depth"), "top", "Levels 1–2");
+  for (const d of [...depths].sort((a, b) => a - b))
+    option($("depth"), String(d), "Level " + d);
+  option($("depth"), "leaf", "Leaf only");
+  option($("depth"), "all", "All levels");
+  $("depth").value = "top";
+  for (const rank of ranks) option($("rank"), rank, rankLabel(rank));
+  bounds = Number.isFinite(lo) ? [lo, Math.max(hi, lo + 1)] : [0, 1];
+  [windowStart, windowEnd] = bounds;
+  $("interval").replaceChildren();
+  option($("interval"), "", "Full capture");
+  const preferred = stages.filter((s) =>
+    /prefill|extend|decode|step|forward/i.test(s.e.name),
+  );
+  for (const s of (preferred.length ? preferred : stages).slice(0, 1000))
+    option(
+      $("interval"),
+      String(stages.indexOf(s)),
+      rankLabel(s.rank) + " · " + short(s.e.name, 44) + " · " + fmt(s.e.ts),
+    );
+  $("title").textContent = data.engine + " timeline";
+  $("summary").textContent =
+    data.traces.length +
+    " trace(s) · " +
+    fmt(bounds[1] - bounds[0]) +
+    " · " +
+    (data.aligned ? "capture time" : "independent trace origins");
+  if (Object.keys(data.timing || {}).length > 1) {
+    const worst = Math.max(
+      ...Object.values(data.timing).map((x) => x.max_error_us),
+    );
+    $("summary").textContent +=
+      " · Clock uncertainty up to ±" + fmt(worst) + " per host";
+  }
+  $("metadata").textContent = JSON.stringify(
+    {
+      engine: data.engine,
+      status: data.status,
+      aligned: data.aligned,
+      clockAlignment: data.alignment_note,
+      telemetry: data.telemetry,
+      calibration: data.baselines,
+      calibrationError: data.calibration_error,
+      kvTransferMetrics: data.kv_metrics,
+      upstreamAnalysis: data.traces
+        .filter((t) => Object.keys(t.upstream || {}).length)
+        .map((t) => ({ rank: t.rank, ...t.upstream })),
+      files: data.traces.map((t) => t.file),
+    },
+    null,
+    2,
+  );
+  $("png").disabled = false;
+  const candidates = stages.filter(
+    (s) =>
+      s.rank === data.traces[0]?.rank &&
+      s.e.domain === "GPU" &&
+      s.e.name === "Decode",
+  );
+  if (candidates.length > 1) {
+    const s = candidates[Math.floor(candidates.length / 2)];
+    $("interval").value = String(stages.indexOf(s));
+    windowStart = s.e.ts;
+    windowEnd = s.e.ts + s.e.dur;
+    details(s.e.name, {
+      Rank: rankLabel(s.rank),
+      Duration: fmt(s.e.dur),
+      Annotation: s.e.original,
+    });
+  }
+  refresh();
+}
+function refresh() {
+  if (!report) return;
+  const groups = new Map(),
+    mode = $("view").value,
+    rank = $("rank").value,
+    depth = $("depth").value;
+  $("depthControl").hidden = !["operator", "stage"].includes(mode);
+  const matchesDepth = (e) =>
+    depth === "all" ||
+    (depth === "leaf"
+      ? e.leaf
+      : depth === "top"
+        ? e.depth <= 2
+        : e.depth === Number(depth));
+  function row(key, label, kind) {
+    if (!groups.has(key)) groups.set(key, { label, kind, events: [] });
+    return groups.get(key);
+  }
+  for (const t of report.traces) {
+    if (rank && rank !== t.rank) continue;
+    for (const e of t.events) {
+      const k = e.kind;
+      if (mode === "hardware") continue;
+      if (
+        mode === "overview" &&
+        (k === "operator" ||
+          (k === "stage" &&
+            (t.hasPhases
+              ? !/^(Prefill|Decode|Mixed batch|Extend)(?: step|$)/i.test(e.name)
+              : e.depth > 2)))
+      )
+        continue;
+      if (
+        mode === "kernel" &&
+        !["communication", "compute", "copy"].includes(k)
+      )
+        continue;
+      if (mode === "stage" && (k !== "stage" || !matchesDepth(e))) continue;
+      if (mode === "communication" && k !== "communication") continue;
+      if (mode === "operator" && (k !== "operator" || !matchesDepth(e)))
+        continue;
+      const group =
+        k === "stage" || k === "operator"
+          ? k +
+            " · " +
+            (e.domain || "CPU") +
+            " " +
+            (mode === "overview" ? "" : e.depth + " / " + e.lane)
+          : mode === "overview"
+            ? k
+            : k + " · GPU " + e.device + " / stream " + e.lane;
+      row(
+        t.rank + "/" + group,
+        rankLabel(t.rank) + " · " + group,
+        k,
+      ).events.push(e);
+    }
+    if (mode === "overview" || mode === "hardware")
+      for (const c of t.counters) {
+        groups.set(
+          t.rank + "/counter/" + c.device + "/" + c.lane + "/" + c.name,
+          { ...c, label: "R" + t.rank + " · " + c.name, kind: "counter" },
+        );
+      }
+  }
+  const selected = report.traces.find((t) => t.rank === rank);
+  const hw = report.hardware.filter((c) => {
+    if (!selected) return true;
+    if (c.node && c.node !== selected.node) return false;
+    const deviceMetric = /^(GPU|MIG)-/.test(c.device);
+    return !deviceMetric || !selected.devices?.length || selected.devices.includes(c.device);
+  });
+  if (mode === "overview" || mode === "hardware")
+    for (const c of hw) {
+      if (
+        mode === "overview" &&
+        ![
+          "hbm.read",
+          "hbm.write",
+          "hbm.total_estimated",
+          "tensor.active",
+          "nvlink.tx",
+          "rdma.tx",
+        ].includes(c.metric)
+      )
+        continue;
+      groups.set("hw/" + c.node + "/" + c.device + "/" + c.metric, {
+        ...c,
+        label: c.name + " · " + deviceLabel(c),
+        kind: "counter",
+      });
+    }
+  resources(hw);
+  transferDetails();
+  computeResources(rank);
+  if (mode === "communication") collectiveResources(rank);
+  if (report.transfers?.length && ["overview", "communication"].includes(mode))
+    groups.set("kv-handoff", {
+      label: "KV handoff · Prefill → Decode",
+      kind: "communication",
+      events: report.transfers,
+    });
+  items = report.findings.filter(
+    (e) =>
+      (!rank ||
+        e.rank === rank ||
+        (e.node &&
+          report.traces.some((t) => t.rank === rank && t.node === e.node))) &&
+      e.ts < windowEnd &&
+      e.ts + e.dur > windowStart,
+  );
+  if (items.length)
+    groups.set("opportunities", {
+      label: "Opportunities",
+      kind: "signal",
+      events: items,
+    });
+  rows = [...groups.values()];
+  if (mode === "overview")
+    rows.sort((a, b) => {
+      const order = [
+        "stage",
+        "compute",
+        "communication",
+        "copy",
+        "signal",
+        "counter",
+      ];
+      return order.indexOf(a.kind) - order.indexOf(b.kind);
+    });
+  $("issues").replaceChildren();
+  $("issueCount").textContent = items.length;
+  for (const e of items.slice(0, 40)) {
+    const b = document.createElement("button"),
+      time = document.createElement("small");
+    b.className = "issue";
+    b.textContent = e.name;
+    time.textContent = rankLabel(e.rank) + " · " + fmt(e.dur);
+    b.append(time);
+    b.onclick = () => {
+      details(e.name, e);
+      setWindow(e.ts - e.dur, e.ts + 2 * e.dur);
+    };
+    $("issues").append(b);
+  }
+  if (!items.length)
+    $("issues").textContent = "No matching opportunities in this interval.";
+  draw();
+}
+function deviceLabel(c) {
+  const meta = c.node ? report.telemetry?.[c.node] : report.telemetry;
+  const id = meta?.devices?.find((d) => d.uuid === c.device)?.index;
+  return (
+    (c.node && Object.keys(report.telemetry).length > 1 ? c.node + " / " : "") +
+    (id == null ? c.device : "GPU " + id)
+  );
+}
+function resources(hw) {
+  const panel = $("rates"),
+    root = $("metrics");
+  root.replaceChildren();
+  panel.hidden = !hw.length;
+  for (const c of hw) {
+    if (
+      ![
+        "hbm.read",
+        "hbm.write",
+        "hbm.total_estimated",
+        "tensor.active",
+        "nvlink.tx",
+        "pcie.tx",
+        "rdma.tx",
+      ].includes(c.metric)
+    )
+      continue;
+    let area = 0,
+      covered = 0;
+    for (const [end, value, start] of c.points) {
+      const duration = Math.max(
+        0,
+        Math.min(end, windowEnd) - Math.max(start, windowStart),
+      );
+      if (duration > 0) {
+        area += duration * value;
+        covered += duration;
+      }
+    }
+    if (covered === 0) continue;
+    const mean = area / covered,
+      b = document.createElement("button"),
+      label = document.createElement("small"),
+      v = document.createElement("strong"),
+      fraction = document.createElement("span");
+    b.className = "metric";
+    label.textContent = deviceLabel(c) + " · " + c.name;
+    v.textContent = mean.toFixed(1) + " " + c.unit;
+    fraction.textContent = c.baseline
+      ? ((100 * mean) / c.baseline.value).toFixed(1) + "% of reference"
+      : "";
+    b.append(label, v, fraction);
+    b.onclick = () =>
+      details(c.name, {
+        Device: c.device,
+        "Selection mean": mean,
+        Unit: c.unit,
+        "Covered time": fmt(covered),
+        Source: c.source,
+        "Measured reference": c.baseline,
+        Scope: c.scope,
+        "Time resolution":
+          "Interval-weighted device samples; a short selection may share samples with adjoining work.",
+      });
+    root.append(b);
+  }
+  panel.hidden = !root.childElementCount;
+}
+function transferDetails() {
+  const section = $("kvSection"),
+    table = $("kvTable");
+  table.replaceChildren();
+  const records = (report.transfers || []).filter(
+    (t) => t.ts < windowEnd && t.ts + t.dur > windowStart,
+  );
+  for (const row of records.slice(0, 12)) {
+    const b = document.createElement("button");
+    b.className = "kv-item";
+    const bytes =
+      row.logical_bytes == null
+        ? "Payload unavailable"
+        : (row.logical_bytes / 1048576).toFixed(2) + " MiB";
+    b.textContent =
+      bytes +
+      " · Prefill transfer " +
+      fmt(row.dur) +
+      (row.receiver_to_decode_us >= 0
+        ? " · Received → decode " + fmt(row.receiver_to_decode_us)
+        : "");
+    b.onclick = () => details("KV handoff", row);
+    table.append(b);
+  }
+  for (const m of report.kv_metrics || []) {
+    if (m.status !== "ok") continue;
+    const b = document.createElement("button");
+    b.className = "kv-item";
+    b.textContent =
+      m.role +
+      " · " +
+      m.transfers +
+      " transfers · " +
+      (m.logical_bytes / 1048576).toFixed(2) +
+      " MiB in " +
+      fmt(m.interval_ns / 1000);
+    b.onclick = () => details("NIXL counter interval", m);
+    table.append(b);
+  }
+  section.hidden = !table.childElementCount;
+}
+function computeResources(rank) {
+  const root = $("metrics");
+  for (const t of report.traces) {
+    if (rank && t.rank !== rank) continue;
+    const stats = new Map();
+    for (const e of t.events) {
+      if (!e.gemm || e.ts < windowStart || e.ts + e.dur > windowEnd) continue;
+      const key = e.device + "/" + e.gemm.dtype;
+      let g = stats.get(key);
+      if (!g) {
+        g = {
+          flops: 0,
+          duration: 0,
+          count: 0,
+          dtype: e.gemm.dtype,
+          device: e.device,
+          ref: e.gemm.reference,
+        };
+        stats.set(key, g);
+      }
+      g.flops += e.gemm.flops;
+      g.duration += e.dur;
+      g.count++;
+    }
+    for (const g of stats.values()) {
+      const rate = g.flops / g.duration / 1e6,
+        b = document.createElement("button"),
+        label = document.createElement("small"),
+        v = document.createElement("strong"),
+        fraction = document.createElement("span");
+      b.className = "metric";
+      label.textContent = rankLabel(t.rank) + " · " + g.dtype + " GEMM";
+      v.textContent = rate.toFixed(2) + " TFLOP/s";
+      fraction.textContent = g.ref
+        ? ((100 * rate) / g.ref.value).toFixed(1) + "% of GEMM reference"
+        : "";
+      b.append(label, v, fraction);
+      b.onclick = () =>
+        details("Shape-derived GEMM throughput", {
+          "Matched kernels": g.count,
+          "Estimated FLOPs": g.flops,
+          "Sum of GPU kernel durations": fmt(g.duration),
+          "Measured GEMM reference": g.ref,
+          Scope:
+            "Complete dense GEMM operations with one correlated device kernel inside the selection.",
+        });
+      root.append(b);
+      $("rates").hidden = false;
+    }
+  }
+}
+function collectiveResources(rank) {
+  const root = $("metrics");
+  for (const trace of report.traces) {
+    if (rank && rank !== trace.rank) continue;
+    const groups = new Map();
+    for (const event of trace.events) {
+      const op = event.collective;
+      if (op?.algorithm_GB_s == null || event.ts < windowStart ||
+          event.ts + op.duration_us > windowEnd) continue;
+      const key = JSON.stringify([event.device, op.group.id, op.op, op.peer_rank]);
+      const g = groups.get(key) || { op, count: 0, bytes: 0, us: 0 };
+      g.count++;
+      g.bytes += op.bytes;
+      g.us += op.duration_us;
+      groups.set(key, g);
+    }
+    for (const {op, count, bytes, us} of groups.values()) {
+      const card = document.createElement("button");
+      card.className = "metric";
+      const label = document.createElement("small");
+      const value = document.createElement("strong");
+      const caption = document.createElement("span");
+      const direction = op.peer_rank == null ? "" :
+        (op.direction === "recv" ? " ← " : " → ") + "rank " + op.peer_rank;
+      label.textContent = rankLabel(trace.rank) + " · " + op.op + direction;
+      value.textContent = (bytes / (1000 * us)).toPrecision(3) + " GB/s";
+      caption.textContent = count + " operations · group " + op.group.id;
+      card.append(label, value, caption);
+      card.onclick = () => details(label.textContent, {
+        "Logical bytes": bytes,
+        "Complete operations": count,
+        "Sum of GPU operation durations": fmt(us),
+        "Rank group": op.group.ranks,
+        "Method": "Logical payload divided by GPU operation time. Select an event for its size, peers and reference."
+      });
+      root.append(card);
+      $("rates").hidden = false;
+    }
+  }
+}
+function setWindow(a, b) {
+  const span = Math.min(bounds[1] - bounds[0], Math.max(0.01, b - a));
+  windowStart = Math.max(bounds[0], Math.min(a, bounds[1] - span));
+  windowEnd = windowStart + span;
+  refresh();
+}
+function draw() {
+  if (!report) return;
+  const w = Math.max(330, Math.floor(canvas.parentElement.clientWidth)),
+    height = 34 + rows.length * 32,
+    ratio = Math.min(window.devicePixelRatio || 1, 2);
+  // Limit the backing store on captures containing many streams.
+  const scale = Math.min(ratio, 16000 / Math.max(height, 1));
+  canvas.width = Math.round(w * scale);
+  canvas.height = Math.round(height * scale);
+  canvas.style.height = height + "px";
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, w, height);
+  titleWidth = Math.min(205, w * 0.34);
+  const left = titleWidth,
+    width = w - left - 12,
+    delta = windowEnd - windowStart;
+  const x = (t) => left + ((t - windowStart) / delta) * width;
+  ctx.font = "11px system-ui";
+  ctx.fillStyle = "#506575";
+  ctx.fillText("Capture time", 10, 19);
+  for (let i = 0; i <= 5; i++) {
+    const xx = left + (width * i) / 5;
+    ctx.fillStyle = "#e2e9ed";
+    ctx.fillRect(xx, 25, 1, height);
+    ctx.fillStyle = "#506575";
+    ctx.fillText(
+      fmt(windowStart + (delta * i) / 5),
+      Math.min(xx + 3, w - 55),
+      19,
+    );
+  }
+  targets = [];
+  rows.forEach((r, index) => {
+    const y = 29 + index * 32;
+    ctx.fillStyle = "#e1e8eb";
+    ctx.fillRect(0, y + 31, w, 1);
+    ctx.fillStyle = "#304957";
+    ctx.fillText(short(r.label, Math.floor(left / 6.4)), 9, y + 19);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(left, y, width, 30);
+    ctx.clip();
+    if (r.kind === "counter") {
+      const points = r.points.filter((p) =>
+        p.length >= 3
+          ? p[2] <= windowEnd && p[0] >= windowStart
+          : p[0] >= windowStart && p[0] <= windowEnd,
+      );
+      let max = 0;
+      for (const p of points) max = Math.max(max, p[1]);
+      ctx.strokeStyle = color.counter;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      points.forEach((p, i) => {
+        const xx = x(p[0]),
+          yy = y + 28 - (23 * p[1]) / (max || 1);
+        if (p.length >= 3) {
+          ctx.moveTo(x(p[2]), yy);
+          ctx.lineTo(xx, yy);
+        } else if (i) ctx.lineTo(xx, yy);
+        else ctx.moveTo(xx, yy);
+        if (points.length < 180) ctx.fillRect(xx - 1, yy - 1, 2, 2);
+      });
+      ctx.stroke();
+      if (points.length) {
+        const unit = r.unit || "";
+        ctx.fillStyle = "#385c55";
+        ctx.font = "10px system-ui";
+        ctx.fillText(
+          "↑ " +
+            max.toLocaleString(undefined, { maximumFractionDigits: 2 }) +
+            " " +
+            unit,
+          left + 4,
+          y + 10,
+        );
+      }
+      targets.push({ y, row: r, points });
+    } else {
+      const visible = [];
+      for (const e of r.events) {
+        if (e.ts >= windowEnd || e.ts + e.dur <= windowStart) continue;
+        const a = Math.max(left, x(e.ts)),
+          b = Math.min(w - 12, x(e.ts + e.dur)),
+          sw = Math.max(1, b - a);
+        ctx.fillStyle = color[r.kind];
+        ctx.fillRect(a, y + 5, sw, 21);
+        if (sw > 42) {
+          ctx.fillStyle = "white";
+          ctx.fillText(short(e.name, Math.floor(sw / 6.8)), a + 3, y + 20);
+        }
+        visible.push({ a, b, e });
+      }
+      targets.push({ y, row: r, visible });
+    }
+    ctx.restore();
+  });
+  $("range").textContent = fmt(windowStart) + " – " + fmt(windowEnd);
+}
+function selectAt(px, py) {
+  const hit = targets.find((t) => py >= t.y && py < t.y + 32);
+  if (!hit) return;
+  if (hit.points) {
+    const ts =
+      windowStart +
+      ((px - titleWidth) / (canvas.clientWidth - titleWidth - 12)) *
+        (windowEnd - windowStart);
+    let best = null;
+    for (const p of hit.points)
+      if (!best || Math.abs(p[0] - ts) < Math.abs(best[0] - ts)) best = p;
+    if (best) {
+      const r = hit.row;
+      details(r.name, {
+        Device: r.device,
+        Time: fmt(best[0]),
+        Value: best[1],
+        Unit: r.unit,
+        Source: r.source,
+        Scope: r.scope,
+        "Sample window": best.length > 2 ? fmt(best[0] - best[2]) : undefined,
+        Baseline: r.baseline?.value,
+        "Baseline utilization": r.baseline?.value
+          ? ((100 * best[1]) / r.baseline.value).toFixed(1) + "%"
+          : undefined,
+      });
+    }
+    return;
+  }
+  const target = hit.visible.findLast(
+    (t) => px >= t.a && px <= Math.max(t.a + 1, t.b),
+  );
+  if (target?.e.collective) {
+    const op = target.e.collective;
+    details(op.op, {
+      "Kernel": target.e.original || target.e.name,
+      "Direction": op.direction, "Peer rank": op.peer_rank,
+      "Group": op.group, "Sequence": op.seq, "Data type": op.dtype,
+      "Logical bytes": op.bytes, "Operation time": op.duration_us == null ? null : fmt(op.duration_us),
+      "GPU kernels": op.kernel_count,
+      "Algorithm bandwidth (GB/s)": op.algorithm_GB_s,
+      "NCCL bus bandwidth (GB/s)": op.bus_GB_s,
+      "Relative to nccl-tests": op.reference_pct == null ? null : op.reference_pct.toFixed(1) + "%",
+      "Measured reference": op.reference,
+      "Part of a multi-kernel operation": op.part_of_operation,
+      "Unavailable": op.unavailable
+    });
+  } else if (target)
+    details(target.e.name, {
+      ...target.e,
+      ts: fmt(target.e.ts),
+      dur: fmt(target.e.dur),
+    });
+}
+function loc(ev) {
+  const box = canvas.getBoundingClientRect();
+  return [ev.clientX - box.left, ev.clientY - box.top];
+}
+canvas.onpointerdown = (e) => {
+  const [x] = loc(e);
+  drag = x;
+  canvas.setPointerCapture(e.pointerId);
+};
+canvas.onpointerup = (e) => {
+  if (drag === null) return;
+  const [x, y] = loc(e),
+    a = drag;
+  drag = null;
+  if (Math.abs(x - a) < 5) {
+    selectAt(x, y);
+    return;
+  }
+  const toTime = (px) =>
+    windowStart +
+    ((px - titleWidth) / (canvas.clientWidth - titleWidth - 12)) *
+      (windowEnd - windowStart);
+  setWindow(toTime(Math.min(x, a)), toTime(Math.max(x, a)));
+};
+canvas.onpointercancel = () => {
+  drag = null;
+};
+for (const id of ["view", "rank", "depth"]) $(id).onchange = refresh;
+$("interval").onchange = (e) => {
+  if (!e.target.value) {
+    setWindow(...bounds);
+    return;
+  }
+  const s = stages[Number(e.target.value)];
+  $("rank").value = s.rank;
+  setWindow(s.e.ts, s.e.ts + s.e.dur);
+};
+$("fit").onclick = () => {
+  $("interval").value = "";
+  setWindow(...bounds);
+};
+function zoom(f) {
+  const mid = (windowEnd + windowStart) / 2,
+    half = ((windowEnd - windowStart) * f) / 2;
+  setWindow(mid - half, mid + half);
+}
+$("plus").onclick = () => zoom(0.5);
+$("minus").onclick = () => zoom(2);
+$("png").onclick = () => {
+  const figure = document.createElement("canvas");
+  const w = canvas.clientWidth,
+    h = canvas.clientHeight,
+    margin = 20;
+  const metrics = [...$("metrics").children].map((e) =>
+    e.innerText.replaceAll("\n", "   "),
+  );
+  const notes = items
+    .slice(0, 3)
+    .map(
+      (e) =>
+        e.name +
+        " · " +
+        rankLabel(e.rank) +
+        " · " +
+        fmt(e.dur) +
+        " at " +
+        fmt(e.ts),
+    );
+  const footer = metrics.length + notes.length;
+  const scale = Math.min(
+    2,
+    16000 / (h + 145 + 24 * footer),
+    Math.sqrt(25e6 / (w * (h + 145 + 24 * footer))),
+  );
+  figure.width = Math.floor(w * scale);
+  figure.height = Math.floor((h + 145 + 24 * footer) * scale);
+  const g = figure.getContext("2d");
+  g.scale(scale, scale);
+  g.fillStyle = "white";
+  g.fillRect(0, 0, w, figure.height / scale);
+  g.fillStyle = "#152f3e";
+  g.fillRect(0, 0, w, 72);
+  g.fillStyle = "white";
+  g.font = "bold 20px system-ui";
+  g.fillText("ServeUtil  ·  " + $("title").innerText, margin, 29);
+  g.fillStyle = "#c7d9df";
+  g.font = "13px system-ui";
+  g.fillText(
+    $("view").selectedOptions[0].text +
+      "   |   " +
+      ($("rank").selectedOptions[0]?.text || "All ranks") +
+      "   |   " +
+      fmt(windowStart) +
+      " – " +
+      fmt(windowEnd),
+    margin,
+    52,
+  );
+  g.drawImage(canvas, 0, 76, w, h);
+  let y = h + 99;
+  for (const [name, lines] of [
+    ["Resources in selection", metrics],
+    ["Optimization opportunities", notes],
+  ]) {
+    if (!lines.length) continue;
+    g.fillStyle = "#1b4048";
+    g.font = "bold 13px system-ui";
+    g.fillText(name, margin, y);
+    y += 19;
+    g.fillStyle = "#41535a";
+    g.font = "12px system-ui";
+    for (const line of lines) {
+      g.fillText(line, margin, y);
+      y += 22;
+    }
+  }
+  figure.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "serveutil-timeline.png";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+};
+async function unpack(raw) {
+  const data = JSON.parse(raw);
+  if (data?.encoding !== "gzip+base64") return data;
+  const binary = atob(data.payload);
+  const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+  const stream = new Blob([bytes])
+    .stream()
+    .pipeThrough(new DecompressionStream("gzip"));
+  return JSON.parse(await new Response(stream).text());
+}
+async function importFile(file) {
+  if (file.name.endsWith(".html")) {
+    const html = await file.text();
+    const content =
+      /<script\s+id="capture-data"\s+type="application\/json">([\s\S]*?)<\/script>/i.exec(
+        html,
+      );
+    if (!content)
+      throw Error("This HTML file does not contain a ServeUtil capture.");
+    return unpack(content[1]);
+  }
+  if (
+    !file.name.endsWith(".gz") &&
+    /"schema"\s*:\s*"serveutil\.report\/1"/.test(
+      await file.slice(0, 1000).text(),
+    )
+  ) {
+    return JSON.parse(await file.text());
+  }
+  const url = URL.createObjectURL(
+    new Blob([$("import-worker").textContent], { type: "text/javascript" }),
+  );
+  const worker = new Worker(url);
+  try {
+    return await new Promise((resolve, reject) => {
+      worker.onmessage = ({ data }) =>
+        data.error ? reject(Error(data.error)) : resolve(data);
+      worker.onerror = (e) => reject(Error(e.message));
+      worker.postMessage(file);
+    });
+  } finally {
+    worker.terminate();
+    URL.revokeObjectURL(url);
+  }
+}
+async function openFile(file) {
+  if (!file) return;
+  const status = document.body.classList.contains("empty") ? $("importStatus") : $("summary");
+  try {
+    status.textContent = "Reading " + file.name + "…";
+    load(await importFile(file));
+  } catch (err) {
+    status.textContent = err.message;
+  }
+}
+$("choose").onclick = () => $("file").click();
+$("file").onchange = async (e) => {
+  await openFile(e.target.files[0]);
+  e.target.value = "";
+};
+window.addEventListener("dragover", (e) => {
+  if (!e.dataTransfer.types.includes("Files")) return;
+  e.preventDefault();
+  document.body.classList.add("dragging");
+});
+window.addEventListener("dragleave", (e) => {
+  if (!e.relatedTarget) document.body.classList.remove("dragging");
+});
+window.addEventListener("drop", (e) => {
+  if (!e.dataTransfer.files.length) return;
+  e.preventDefault();
+  document.body.classList.remove("dragging");
+  openFile(e.dataTransfer.files[0]);
+});
+new ResizeObserver(draw).observe(canvas.parentElement);
+unpack($("capture-data").textContent)
+  .then((initial) => {
+    if (initial) load(initial);
+  })
+  .catch((err) => {
+    $("importStatus").textContent = "Unable to read capture: " + err.message;
+  });
+</script></body></html>

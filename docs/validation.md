@@ -9,6 +9,7 @@
 | PyTorch 原生 schedule | 8 步，每步生成 6 个 token。wait 1、warmup 1、active 2，重复两轮。两个活动窗口各保存 19,816 个计算 kernel，可重用同一组 32 项本机标定结果。 |
 | vLLM 0.29.0、SGLang 0.5.21 | 单 GPU、双 GPU TP，以及同机的 Prefill/Decode 分离均以实际请求采集。SGLang 请求 span 可关联到交接区间。vLLM NIXL 的一次采集在 Decode 端得到 36 笔传输、66,060,288 字节、0 次失败。 |
 | 多进程 GPU 通信 | vLLM 0.32.0 使用两实例 PP2。SGLang 0.5.22 使用两实例 TP2。两实例位于同一台 H20 主机。独立 rank trace 保留实际的 NCCL 点对点及集合通信元数据。 |
+| 跨物理 GPU 的 vLLM PD | vLLM ExampleConnector 导出 28 层、共 5,505,024 字节的 KV，经显式文件中继交给另一台主机。Decode 端命中 48 个外部缓存 token，生成的 8 个 token 与完整模型逐项吻合。trace 中分别有 28 次等大小的 DtoH 和 HtoD。 |
 | 跨物理 GPU 的 PyTorch PP 与 PD | 两台主机各使用一张 H20，经应用专用 SSH 中继传输激活或 KV。重组后的两个模型均与单卡对照逐个生成相同的 5 个 token，两端载荷哈希一致。这组实验用于验证分布式采集和传递结果。 |
 | 跨节点 RDMA | ib_write_bw 的 64 KiB WRITE 测得主存到主存 41.36 GB/s、GPU 到远端主存 47.34 GB/s。后者源和目的端口各约 47.82 GB/s。校准记录注明缓冲区位置和方向。 |
 
