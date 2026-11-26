@@ -1,0 +1,18 @@
+{
+  "client_url": "http://head.example:8000",
+  "targets": [{"url": "http://head.example:8000"}],
+  "nodes": [
+    {
+      "name":"head",
+      "command":["ssh","head.example","python3","-m","serveutil.worker"],
+      "workdir":"serveutil-runs",
+      "roots":[{"role":"worker","directory":"/profiles","ranks":1}]
+    },
+    {
+      "name":"peer",
+      "command":["ssh","peer.example","python3","-m","serveutil.worker"],
+      "workdir":"serveutil-runs",
+      "roots":[{"role":"worker","directory":"/profiles","ranks":1}]
+    }
+  ]
+}

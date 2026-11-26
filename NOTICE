@@ -1,2 +1,5 @@
 ServeUtil
 Copyright 2026 ServeUtil contributors
+
+The browser trace importer includes @streamparser/json, copyright Juanjo Diaz,
+under the MIT License. See serveutil/ui/streamparser-LICENSE.txt.

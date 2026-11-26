@@ -4,3 +4,7 @@ build/
 dist/
 .venv/
 *.overview.json
+.local/
+*.local.md
+node_modules/
+.ruff_cache/

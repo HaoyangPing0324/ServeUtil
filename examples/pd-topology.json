@@ -1,0 +1,21 @@
+{
+  "client_url": "http://router.example:8000",
+  "targets": [
+    {"role": "prefill", "url": "http://prefill.example:30000", "output_dir": "/profiles/prefill"},
+    {"role": "decode", "url": "http://decode.example:30000", "output_dir": "/profiles/decode"}
+  ],
+  "nodes": [
+    {
+      "name": "prefill",
+      "command": ["ssh", "prefill.example", "python3", "-m", "serveutil.worker"],
+      "workdir": "serveutil-runs",
+      "roots": [{"role": "prefill", "directory": "/profiles/prefill", "ranks": 1}]
+    },
+    {
+      "name": "decode",
+      "command": ["ssh", "decode.example", "python3", "-m", "serveutil.worker"],
+      "workdir": "serveutil-runs",
+      "roots": [{"role": "decode", "directory": "/profiles/decode", "ranks": 1}]
+    }
+  ]
+}

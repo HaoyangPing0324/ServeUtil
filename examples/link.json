@@ -1,0 +1,19 @@
+{
+  "transport": "tcp",
+  "seconds": 2,
+  "bidirectional": true,
+  "source": {
+    "name": "prefill",
+    "command": ["ssh", "prefill", "python3", "-m", "serveutil.worker"],
+    "address": "192.0.2.1",
+    "interface": "eth0",
+    "workdir": "serveutil-runs"
+  },
+  "destination": {
+    "name": "decode",
+    "command": ["ssh", "decode", "python3", "-m", "serveutil.worker"],
+    "address": "192.0.2.2",
+    "interface": "eth0",
+    "workdir": "serveutil-runs"
+  }
+}

@@ -4,15 +4,32 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "serveutil"
-version = "0.0.1.dev0"
+version = "0.1.0"
 description = "Readable compute and bandwidth timelines for LLM serving"
+readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
-dependencies = ["ijson>=3.2,<4"]
+dependencies = ["ijson>=3.2,<4", "prometheus-client>=0.17,<1"]
 
 [project.scripts]
-serveutil = "serveutil:main"
+serveutil = "serveutil.cli:main"
 
 [tool.setuptools]
-py-modules = ["serveutil"]
+packages = ["serveutil"]
+
+[project.optional-dependencies]
+gpu = ["nvidia-ml-py>=12.550.52"]
+desktop = ["pywebview>=6,<7", "pywebview[qt]>=6,<7; sys_platform == 'linux'"]
+llmperfscope = ["llmperfscope>=0.2,<1"]
+pm = ["nvidia-ml-py>=12.550.52", "cupti-python>=13.4,<14; sys_platform == 'linux'"]
+
+[tool.setuptools.package-data]
+serveutil = ["ui/*"]
+
+[project.gui-scripts]
+serveutil-viewer = "serveutil.desktop:main"
+
+[project.urls]
+Source = "https://github.com/HaoyangPing0324/ServeUtil"
+Issues = "https://github.com/HaoyangPing0324/ServeUtil/issues"
