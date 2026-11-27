@@ -1146,53 +1146,91 @@
     }
   };
 
-  // node_modules/@streamparser/json/dist/mjs/jsonparser.js
-  var JSONParser = class {
-    constructor(opts = {}) {
-      this.tokenizer = new Tokenizer(opts);
-      this.tokenParser = new TokenParser(opts);
-      this.tokenizer.onToken = this.tokenParser.write.bind(this.tokenParser);
-      this.tokenizer.onEnd = () => {
-        if (!this.tokenParser.isEnded)
-          this.tokenParser.end();
-      };
-      this.tokenParser.onError = this.tokenizer.error.bind(this.tokenizer);
-      this.tokenParser.onEnd = () => {
-        if (!this.tokenizer.isEnded)
-          this.tokenizer.end();
-      };
-    }
-    get isEnded() {
-      return this.tokenizer.isEnded && this.tokenParser.isEnded;
-    }
-    write(input) {
-      this.tokenizer.write(input);
-    }
-    end() {
-      this.tokenizer.end();
-    }
-    set onToken(cb) {
-      this.tokenizer.onToken = (parsedToken) => {
-        cb(parsedToken);
-        this.tokenParser.write(parsedToken);
-      };
-    }
-    set onValue(cb) {
-      this.tokenParser.onValue = cb;
-    }
-    set onError(cb) {
-      this.tokenizer.onError = cb;
-    }
-    set onEnd(cb) {
-      this.tokenParser.onEnd = () => {
-        if (!this.tokenizer.isEnded)
-          this.tokenizer.end();
-        cb.call(this.tokenParser);
-      };
+  // src/import.js
+  var TraceTokenizer = class extends Tokenizer {
+    parseNumber(token) {
+      const value = super.parseNumber(token);
+      return Number.isInteger(value) && !Number.isSafeInteger(value) && /^-?\d+$/.test(token) ? token : value;
     }
   };
-
-  // src/import.js
+  function communicator(args) {
+    const name = String(args["Collective name"] || "").replaceAll("_", "").toLowerCase();
+    const op = {
+      send: "send",
+      recv: "recv",
+      allreduce: "all_reduce",
+      broadcast: "broadcast",
+      allgather: "all_gather",
+      allgatherbase: "all_gather",
+      reducescatter: "reduce_scatter",
+      reducescatterbase: "reduce_scatter",
+      reduce: "reduce"
+    }[name];
+    if (!op) return;
+    let members = args["Process Group Ranks"];
+    if (typeof members === "string") {
+      try {
+        members = JSON.parse(members);
+      } catch {
+        members = null;
+      }
+    }
+    const group = {
+      id: args["Process Group Name"] == null ? null : String(args["Process Group Name"]),
+      size: args["Group size"]
+    };
+    if (Array.isArray(members) && members.every(Number.isSafeInteger))
+      group.ranks = members;
+    const result = { op, group, seq: args.Seq, dtype: args.dtype };
+    const comms = args["Comms Id"];
+    if (/^[1-9]\d*$/.test(String(comms))) result.comms_id = String(comms);
+    if (op === "send" || op === "recv") {
+      result.direction = op;
+      result.peer_rank = args[op === "send" ? "Dst Rank" : "Src Rank"];
+    }
+    const dtype = String(args.dtype || "").replace(/^torch\./, "").toLowerCase();
+    const width = {
+      bool: 1,
+      byte: 1,
+      uint8: 1,
+      char: 1,
+      int8: 1,
+      short: 2,
+      int16: 2,
+      uint16: 2,
+      half: 2,
+      float16: 2,
+      bfloat16: 2,
+      bf16: 2,
+      float: 4,
+      float32: 4,
+      int: 4,
+      int32: 4,
+      uint32: 4,
+      long: 8,
+      int64: 8,
+      uint64: 8,
+      double: 8,
+      float64: 8,
+      complex64: 8,
+      complex128: 16
+    }[dtype];
+    const incoming = args["In msg nelems"], outgoing = args["Out msg nelems"];
+    let elements;
+    if (op === "send" && (outgoing == null || outgoing === 0 || incoming === outgoing))
+      elements = incoming;
+    else if (op === "recv" && (incoming == null || incoming === 0 || incoming === outgoing))
+      elements = outgoing;
+    else if (op === "all_gather" && incoming * group.size === outgoing)
+      elements = outgoing;
+    else if (op === "reduce_scatter" && outgoing * group.size === incoming)
+      elements = incoming;
+    else if (["all_reduce", "reduce", "broadcast"].includes(op) && incoming === outgoing)
+      elements = incoming;
+    if (Number.isSafeInteger(elements) && elements >= 0 && Number.isSafeInteger(elements * width))
+      result.bytes = elements * width;
+    return result;
+  }
   self.onmessage = async ({ data: file }) => {
     try {
       let stream = file.stream();
@@ -1201,12 +1239,29 @@
       }
       const reader = stream.getReader();
       const events = [], counters = /* @__PURE__ */ new Map(), stack = /* @__PURE__ */ new Map();
-      let origin = Infinity, count = 0;
-      const parser = new JSONParser({
-        paths: ["$.traceEvents.*"],
+      let origin = Infinity, count = 0, epoch, globalRank;
+      const tokenizer = new TraceTokenizer();
+      const parser = new TokenParser({
+        paths: [
+          "$.traceEvents.*",
+          "$.baseTimeNanoseconds",
+          "$.distributedInfo.rank"
+        ],
         keepStack: false
       });
-      parser.onValue = ({ value: e }) => {
+      tokenizer.onToken = (token) => parser.write(token);
+      tokenizer.onEnd = () => {
+        if (!parser.isEnded) parser.end();
+      };
+      parser.onValue = ({ value: e, key: property }) => {
+        if (property === "baseTimeNanoseconds") {
+          epoch = String(e);
+          return;
+        }
+        if (property === "rank") {
+          if (Number.isSafeInteger(e)) globalRank = e;
+          return;
+        }
         count++;
         if (!e || !Number.isFinite(e.ts)) return;
         const lane = String(e.tid ?? ""), track = String(e.pid ?? "");
@@ -1243,7 +1298,7 @@
         const cat = (e.cat || "").split(","), name = e.name || "", args = e.args || {};
         let kind, label = name;
         if (cat.includes("kernel")) {
-          kind = /nccl|all.?reduce|all.?gather|reduce.?scatter|all.?to.?all/i.test(
+          kind = args["Collective name"] || /nccl|all.?reduce|all.?gather|reduce.?scatter|all.?to.?all/i.test(
             name
           ) ? "communication" : "compute";
           if (kind === "compute" && /gemm/i.test(name.split("<")[0]))
@@ -1279,6 +1334,7 @@
             event.name = Number(vl[1]) ? Number(vl[2]) ? "Mixed batch" : "Prefill" : Number(vl[2]) ? "Decode" : "Idle";
         }
         if (name !== event.name) event.original = name;
+        if (kind === "communication") event.collective = communicator(args);
         for (const key2 of [
           "stream",
           "correlation",
@@ -1295,9 +1351,9 @@
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        parser.write(value);
+        tokenizer.write(value);
       }
-      if (!parser.isEnded) parser.end();
+      if (!tokenizer.isEnded) tokenizer.end();
       if (!count) throw Error("No trace events found in this file.");
       for (const e of events) e.ts -= origin;
       events.sort((a, b) => a.ts - b.ts || b.dur - a.dur);
@@ -1315,7 +1371,17 @@
           analysis: "Raw browser import. Use serveutil report for interval findings and correlated GEMM estimates."
         },
         findings: [],
-        traces: [{ rank: "0", file: file.name, events, counters: series }]
+        traces: [
+          {
+            rank: "0",
+            global_rank: globalRank,
+            file: file.name,
+            events,
+            counters: series,
+            raw_epoch: epoch,
+            raw_begin: Number.isFinite(origin) ? origin : 0
+          }
+        ]
       });
     } catch (e) {
       self.postMessage({ error: e.message });

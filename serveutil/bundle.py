@@ -67,7 +67,7 @@ class Capture:
         if error:
             self.manifest["error"] = str(error)
         self.save()
-        if error is None:
+        if error is None and self.manifest["traces"]:
             from .report import render
 
             render(self.path, self.path / "report.html")

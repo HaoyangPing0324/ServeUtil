@@ -25,7 +25,7 @@ llmperfscope = ["llmperfscope>=0.2,<1"]
 pm = ["nvidia-ml-py>=12.550.52", "cupti-python>=13.4,<14; sys_platform == 'linux'"]
 
 [tool.setuptools.package-data]
-serveutil = ["ui/*"]
+serveutil = ["ui/*", "vendor/*"]
 
 [project.gui-scripts]
 serveutil-viewer = "serveutil.desktop:main"

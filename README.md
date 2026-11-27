@@ -6,7 +6,7 @@ ServeUtil 把 PyTorch、vLLM 和 SGLang 的推理阶段、GPU 工作、硬件计
 
 <img src="assets/h20-decode.png" width="100%" alt="Qwen3 在 H20 上的一次 Decode，橙色标记突出 GPU 空档，时间线下方显示 HBM 读写、Tensor 活跃度与 BF16 GEMM 算力">
 
-克隆后双击 `examples/index.html` 即可打开网页版。文件拖入浏览器后在本地解析。两个实测样例也可单独下载，在浏览器中直接打开。[网页版入口](examples/index.html) · [Qwen3 Decode 与 HBM 读写](examples/h20-decode.html) · [SGLang 双卡 AllReduce 与实测参考值](examples/h20-allreduce.html)
+用 `serveutil view` 或桌面版打开文件，可在推理总览和内置的完整 Perfetto 之间切换。双击 `examples/index.html` 也能离线浏览推理总览。两个实测样例也可单独下载，在浏览器中直接打开。[网页版入口](examples/index.html) · [Qwen3 Decode 与 HBM 读写](examples/h20-decode.html) · [SGLang 双卡 AllReduce 与实测参考值](examples/h20-allreduce.html)
 
 ## 在 PyTorch 中录制
 
@@ -27,6 +27,8 @@ with serveutil.profile("runs", record_shapes=True) as prof:
 
 print(prof.serveutil_directory / "report.html")
 ```
+
+`prof` 是原生 `torch.profiler.profile` 实例，可继续使用原生 schedule、TensorBoard 回调、ExecutionTraceObserver、内存时间线和堆栈导出。[原生接口和版本验证](docs/torch-profiler.md)
 
 默认在首次采集前标定当前 CUDA 设备，后续运行复用缓存。使用 `calibration=False` 可跳过微测，也可以传入已保存的标定 JSON。记录输入形状后，ServeUtil 对能唯一关联到 GPU kernel 的 dense GEMM 显示有效 TFLOP/s。Linux 环境可用 `python -m pip install '.[pm]'` 安装 CUPTI 采样依赖。直接采集 HBM 读写取决于驱动、GPU 性能计数器权限以及可用的 CUPTI 或 PyTorch PM 接口。详情区列出本次采集成功的指标和缺失原因。[指标、硬件后端和利用率](docs/metrics.md)
 
@@ -64,10 +66,12 @@ serveutil capture --engine sglang --topology deployment.json \
 
 ## 读报告
 
+导入整个 capture 后，默认显示所有节点和 rank。节点、rank、算子层级和原始名称均可独立选择。**Full Perfetto** 用随包提供的官方 UI 和 Trace Processor 打开原始文件，保留原生事件、参数和关联，支持 SQL、Data Explorer 以及上游插件。[查看器使用说明](docs/viewer.md)
+
 | 想弄清楚的问题 | 查看方式 |
 |---|---|
 | 一个 step 的时间花在哪里？ | 默认显示阶段和资源。切到 Operator depth，可选一二级、指定层或叶子。选择 rank 或拖动时间轴可以缩小范围。 |
-| 两张卡在什么时候相互等待？ | Communication 展示 NCCL 分组、序号、对端、消息大小、有效带宽。存在可比的 nccl-tests 基线时，同步显示百分比。 |
+| 两张卡在什么时候相互等待？ | Communication paths 可在两个 rank 或节点间跳转，显示配对依据。点选事件可查看 NCCL 分组、序号、对端、消息大小及有效带宽。存在可比的 nccl-tests 基线时，同步显示百分比。 |
 | 哪一种资源接近实测上限？ | Hardware counters 展示 HBM、PCIe、NVLink、节点网络和各计算流水线的可用样本。选区卡片给出绝对量，有同口径实测基线时也显示百分比。 |
 | 哪段值得优化？ | 橙色标记突出重复 GPU 空档、暴露的通信、持续带宽压力及可比较的 rank 耗时差异。点击可回到对应区间并查看触发依据。 |
 | KV 交接影响了哪个请求？ | 有请求关联的 SGLang 采集展示发送区间、接收完成和 Decode 起点。vLLM NIXL 提供对应端点计数窗口的总字节、传输数和失败数。 |
@@ -77,6 +81,7 @@ serveutil capture --engine sglang --topology deployment.json \
 ```bash
 serveutil report rank0.pt.trace.json.gz -o report.html
 serveutil export capture-directory -o overview.json
+serveutil export --full capture-directory -o all-events.json
 ```
 
 **桌面版** 和网页版使用同一套时间轴。桌面程序支持从命令行打开文件，也支持拖放。从源码运行可执行以下两行。CI 工作流提供 Linux、Windows、macOS 的构建入口及原生渲染检验。[桌面与网页构建产物](https://github.com/HaoyangPing0324/ServeUtil/actions/workflows/desktop.yml)
@@ -88,8 +93,8 @@ serveutil view report.html --desktop
 
 ## 验证与复用
 
-实测覆盖 Qwen3-0.6B、单卡与多卡推理、Prefill/Decode 分离和两台物理主机的数据交接。结果页列出框架版本、传输后端、GPU kernel 证据和短窗口 profiling 开销。[真实模型与采集开销](docs/validation.md)
+实测覆盖 Qwen3-0.6B 在两台 H20 主机间直连的 vLLM PP2、SGLang TP2，以及两种框架各自的 NIXL Prefill/Decode 分离。按相同时间段独立读取两端网卡计数，核对了报告中的绝对带宽和利用率。结果页列出框架版本、传输后端、GPU kernel 证据和短窗口 profiling 开销。[真实模型与采集开销](docs/validation.md)
 
 ServeUtil 直接使用 PyTorch/Kineto 时间线、NVML GPM 与 CUPTI。标定可调用 nvbandwidth、nccl-tests 和 RDMA perftest。已有 llmperfscope run 可以导入，安装 HTA 或 TraceLens 后也能把上游分析结果放入同一份报告。[上游工具与对应入口](docs/tools.md) · [PyTorch Profiler](https://docs.pytorch.org/docs/stable/profiler.html) · [Perfetto](https://ui.perfetto.dev/)
 
-项目采用 Apache License 2.0。浏览器流式 JSON 解析器遵循其 MIT 许可证。[LICENSE](LICENSE) · [NOTICE](NOTICE)
+项目采用 Apache License 2.0。随包分发的 Perfetto 和浏览器流式 JSON 解析器保留上游许可证。[LICENSE](LICENSE) · [NOTICE](NOTICE)

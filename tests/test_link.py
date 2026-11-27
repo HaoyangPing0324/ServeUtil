@@ -1,13 +1,30 @@
 import socket
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 from pathlib import Path
 
 from serveutil.link import calibrate_link
+from serveutil.rdma import _ready
 from serveutil.reference import steady_rdma_reference
 
 
 class LinkTests(unittest.TestCase):
+    def test_rdma_cm_waits_for_the_selected_process_and_port(self):
+        proc = Mock(pid=321)
+        proc.poll.return_value = None
+        records = [
+            '[{"state":"LISTEN","pid":123,"src-addr":"10.0.0.1:6543"}]',
+            '[{"state":"LISTEN","pid":321,"src-addr":"10.0.0.1:6544"}]',
+            '[{"state":"LISTEN","pid":321,"src-addr":"10.0.0.1:6543"}]',
+        ]
+        with patch(
+            "serveutil.rdma.subprocess.run",
+            side_effect=[Mock(stdout=r) for r in records],
+        ) as inspect:
+            _ready(6543, proc, rdma_cm=True)
+        self.assertEqual(inspect.call_count, 3)
+
     def test_rdma_reference_excludes_registration_and_teardown(self):
         def measure(rates):
             rows = [

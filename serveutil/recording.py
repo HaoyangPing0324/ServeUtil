@@ -1,36 +1,92 @@
 """PyTorch capture entry points. Torch is only imported when recording."""
 
 import gzip
+import inspect
 import os
 import shutil
-from contextlib import contextmanager
+import tempfile
+import weakref
+from collections.abc import Mapping
 from pathlib import Path
+from types import MethodType
 
 from .bundle import Capture, write_json
 
 
-def _callback(capture):
-    def save(prof):
-        cycle = len(capture.manifest["traces"])
-        rank = os.getenv("RANK", "0")
-        path = capture.path / "traces" / f"rank-{rank}-cycle-{cycle}.json.gz"
-        prof.export_chrome_trace(str(path))
-        capture.add_trace(path, rank)
-        return path
+def _failed_callback(profiler, capture, exc):
+    # PyTorch invokes callbacks between stop_trace and the next prepare_trace.
+    # If a callback raises during step(), __exit__ must not stop Kineto twice.
+    from torch.profiler import ProfilerAction
 
-    return save
+    profiler.current_action = ProfilerAction.NONE
+    profiler.step_rec_fn = None
+    capture.finish(exc)
 
 
-def trace_handler(output="serveutil-runs"):
-    """Use as on_trace_ready in an existing torch.profiler.profile."""
+def _result(profiler):
+    return getattr(profiler.profiler, "kineto_results", None) or profiler.profiler
 
-    def save(prof):
+
+def _export_cycle(capture, profiler):
+    """Archive Kineto's complete single-use export and replay that cycle on demand."""
+    rank = os.getenv("RANK", "0")
+    cycle = len(capture.manifest["traces"])
+    path = capture.path / "traces" / f"rank-{rank}-cycle-{cycle}.json.gz"
+    # Keep the native JSON and compression spools in this capture's directory.
+    native_export = getattr(
+        profiler, "_serveutil_native_export", profiler.export_chrome_trace
+    )
+    result = _result(profiler)
+    previous = getattr(profiler, "_serveutil_result", None)
+    if previous is not None and previous() is result:
+        shutil.copyfile(profiler._serveutil_archive, path)
+    else:
+        with tempfile.TemporaryDirectory(dir=path.parent) as tmp:
+            raw = Path(tmp) / "kineto.json"
+            native_export(str(raw))
+            with raw.open("rb") as src, gzip.open(path, "wb", compresslevel=3) as dst:
+                shutil.copyfileobj(src, dst)
+    capture.add_trace(path, rank)
+    profiler.serveutil_directory = capture.path
+    profiler._serveutil_native_export = native_export
+    profiler._serveutil_archive = path
+    profiler._serveutil_result = weakref.ref(result)
+    profiler.export_chrome_trace = MethodType(_export_saved, profiler)
+
+
+def _export_saved(profiler, *args, **kwargs):
+    # A newly prepared cycle may not yet have a result. Let torch handle it.
+    native = profiler._serveutil_native_export
+    signature = inspect.signature(native)
+    options = signature.bind(*args, **kwargs).arguments
+    dest = options.pop("path")
+    if _result(profiler) is not profiler._serveutil_result() or any(
+        value != signature.parameters[name].default for name, value in options.items()
+    ):
+        # Native alternatives (such as use_python_export=True) use their own writer.
+        return native(*args, **kwargs)
+    source, dest = profiler._serveutil_archive, Path(dest)
+    if source.resolve() == dest.resolve():
+        return
+    if dest.suffix == ".gz":
+        shutil.copyfile(source, dest)
+    else:
+        with gzip.open(source, "rb") as src, dest.open("wb") as out:
+            shutil.copyfileobj(src, out)
+
+
+def trace_handler(output="serveutil-runs", *, on_trace_ready=None):
+    """Attach only an export callback to an existing native profiler."""
+
+    def save(profiler):
         capture = Capture(output, "torch")
         try:
-            _callback(capture)(prof)
+            _export_cycle(capture, profiler)
+            if on_trace_ready is not None:
+                on_trace_ready(profiler)
             capture.finish()
         except BaseException as exc:
-            capture.finish(exc)
+            _failed_callback(profiler, capture, exc)
             raise
 
     return save
@@ -84,7 +140,24 @@ def _set_metadata(capture, torch, devices, base, error):
         }
 
 
-@contextmanager
+def _configure(torch, devices, metrics, options):
+    from .telemetry import kineto_activities
+
+    if metrics:
+        if options.get("activities") is not None:
+            raise ValueError("choose metrics or explicit activities")
+        options["activities"] = kineto_activities(torch, metrics)
+    activities = options.get("activities")
+    if activities is not None and not isinstance(activities, Mapping):
+        activities = options["activities"] = tuple(activities)
+    if devices is None and (
+        options.get("use_cuda") is False
+        or (activities and torch.profiler.ProfilerActivity.CUDA not in activities)
+    ):
+        return []
+    return _torch_devices(torch, devices)
+
+
 def profile(
     output="serveutil-runs",
     *,
@@ -94,142 +167,191 @@ def profile(
     calibration="auto",
     **profiler_kwargs,
 ):
-    """Yield a native torch profiler. Its step(), schedule and summaries work as usual.
-
-    A supplied on_trace_ready callback can read summaries and export the same native cycle.
-    Set calibration=False to skip the local microbenchmarks.
-    """
+    """Return a native torch profiler and collect a single ServeUtil run across its schedule."""
     import torch
+    from .telemetry import TelemetrySampler
 
-    from .telemetry import TelemetrySampler, kineto_activities
+    selected = _configure(torch, devices, metrics, profiler_kwargs)
+    user_callback = profiler_kwargs.pop("on_trace_ready", None)
+    capture = sampler = None
 
-    capture = Capture(output, "torch")
-    sampling = None
-    try:
-        devices = _torch_devices(torch, devices)
-        base, error = _baseline(torch, output, devices, calibration)
-        _set_metadata(capture, torch, devices, base, error)
-        if metrics:
-            if "activities" in profiler_kwargs:
-                raise ValueError("choose metrics or explicit activities")
-            profiler_kwargs["activities"] = kineto_activities(torch, metrics)
-        user_callback = profiler_kwargs.pop("on_trace_ready", None)
-        export_cycle = _callback(capture)
+    def ready(profiler):
+        try:
+            _export_cycle(capture, profiler)
+            if user_callback is not None:
+                user_callback(profiler)
+        except BaseException as exc:
+            _failed_callback(profiler, capture, exc)
+            raise
 
-        def ready(prof):
-            path = export_cycle(prof)
-            if user_callback is None:
-                return
+    profiler = torch.profiler.profile(on_trace_ready=ready, **profiler_kwargs)
+    native_start, native_stop = profiler.start, profiler.stop
 
-            # Kineto allows a native trace to be exported once. Replay that exact
-            # export for torch.tensorboard_trace_handler and custom callbacks.
-            def export_again(destination):
-                destination = Path(destination)
-                if destination.resolve() == path.resolve():
-                    return
-                if destination.suffix == ".gz":
-                    shutil.copyfile(path, destination)
-                else:
-                    with gzip.open(path, "rb") as src, destination.open("wb") as dst:
-                        shutil.copyfileobj(src, dst)
+    def start():
+        nonlocal capture, sampler
+        if sampler is not None:
+            raise RuntimeError("ServeUtil profiler is already recording")
+        capture = Capture(output, "torch")
+        profiler.serveutil_directory = capture.path
+        try:
+            base, error = _baseline(torch, output, selected, calibration)
+            _set_metadata(capture, torch, selected, base, error)
+            sampler = TelemetrySampler(
+                capture.path / "samples.jsonl.gz",
+                devices=selected,
+                interval_ms=interval_ms,
+                include_hbm=not bool(metrics),
+            ).start()
+            return native_start()
+        except BaseException as exc:
+            if sampler is not None:
+                capture.manifest["telemetry"] = sampler.stop()
+                sampler = None
+            capture.finish(exc)
+            raise
 
-            previous = vars(prof).get("export_chrome_trace")
-            prof.export_chrome_trace = export_again
+    def stop():
+        nonlocal sampler
+        if sampler is None:
+            return native_stop()
+        active, sampler = sampler, None
+        try:
             try:
-                user_callback(prof)
+                result = native_stop()
             finally:
-                if previous is None:
-                    del prof.export_chrome_trace
-                else:
-                    prof.export_chrome_trace = previous
+                capture.manifest["telemetry"] = active.stop()
+            if capture.manifest["status"] == "recording":
+                capture.finish()
+            else:
+                capture.save()
+            return result
+        except BaseException as exc:
+            capture.finish(exc)
+            if profiler.execution_trace_observer is not None:
+                profiler.execution_trace_observer.cleanup()
+            raise
 
-        sampling = TelemetrySampler(
-            capture.path / "samples.jsonl.gz",
-            devices=devices,
-            interval_ms=interval_ms,
-            include_hbm=not bool(metrics),
-        ).start()
-        with torch.profiler.profile(
-            on_trace_ready=ready, **profiler_kwargs
-        ) as profiler:
-            profiler.serveutil_directory = capture.path
-            yield profiler
-        capture.manifest["telemetry"] = sampling.stop()
-        sampling = None
-        capture.finish()
-    except BaseException as exc:
-        if sampling is not None:
-            capture.manifest["telemetry"] = sampling.stop()
-        capture.finish(exc)
-        raise
+    profiler.start, profiler.stop = start, stop
+    return profiler
 
 
 class _CycleObserver:
-    """Torch starts and stops this observer on each active Kineto recording cycle."""
+    """Collect one hardware run for each active execution-trace observer interval."""
 
-    def __init__(self, output, devices, interval_ms, base, error):
+    def __init__(
+        self, output, devices, interval_ms, base, error, observer, callback, metrics
+    ):
         self.output = output
         self.devices = devices
         self.interval_ms = interval_ms
         self.base, self.error = base, error
-        self.capture = None
-        self.sampler = None
+        self.observer = observer
+        self.callback = callback
+        self.include_hbm = not bool(metrics)
+        self.capture = self.sampler = None
 
     def start(self):
+        import torch
         from .telemetry import TelemetrySampler
 
         if self.capture is not None:
-            self.cleanup()
+            self._discard()
         self.capture = Capture(self.output, "torch")
-        import torch
-
-        selected = self.devices
         try:
-            _set_metadata(self.capture, torch, selected, self.base, self.error)
+            _set_metadata(self.capture, torch, self.devices, self.base, self.error)
             self.sampler = TelemetrySampler(
-                self.capture.path / "samples.jsonl.gz", selected, self.interval_ms
+                self.capture.path / "samples.jsonl.gz",
+                self.devices,
+                self.interval_ms,
+                include_hbm=self.include_hbm,
             ).start()
+            if self.observer is not None:
+                self.observer.start()
         except BaseException as exc:
+            self._stop_sampler()
             self.capture.finish(exc)
             self.capture = None
             raise
 
-    def stop(self):
+    def _stop_sampler(self):
         if self.sampler is not None:
             sampler, self.sampler = self.sampler, None
             self.capture.manifest["telemetry"] = sampler.stop()
 
+    def stop(self):
+        try:
+            if self.observer is not None:
+                self.observer.stop()
+        finally:
+            self._stop_sampler()
+
     def on_trace_ready(self, profiler):
-        self.stop()
+        self._stop_sampler()
         if self.capture is None:
             raise RuntimeError(
                 "ServeUtil observer did not start with the native profiler"
             )
         capture, self.capture = self.capture, None
         try:
-            _callback(capture)(profiler)
+            _export_cycle(capture, profiler)
+            if self.callback is not None:
+                self.callback(profiler)
             capture.finish()
         except BaseException as exc:
-            capture.finish(exc)
+            _failed_callback(profiler, capture, exc)
+            self.cleanup()
             raise
 
-    def cleanup(self):
-        self.stop()
-        if self.capture:
-            self.capture.finish("Profiler ended without a completed trace cycle")
+    def _discard(self):
+        self._stop_sampler()
+        if self.capture is not None:
+            self.capture.manifest["note"] = (
+                "Schedule ended without a saved native trace."
+            )
+            self.capture.finish()
             self.capture = None
+
+    def cleanup(self):
+        try:
+            self._discard()
+        finally:
+            if self.observer is not None:
+                observer, self.observer = self.observer, None
+                observer.cleanup()
 
 
 def instrument(
-    output="serveutil-runs", *, devices=None, interval_ms=100, calibration="auto"
+    output="serveutil-runs",
+    *,
+    devices=None,
+    interval_ms=100,
+    calibration="auto",
+    metrics=(),
+    **profiler_kwargs,
 ):
-    """Expand into torch.profiler.profile(**serveutil.instrument(...))."""
+    """Return native torch.profiler.profile kwargs with a composed observer and trace callback."""
     import torch
 
-    selected = _torch_devices(torch, devices)
+    selected = _configure(torch, devices, metrics, profiler_kwargs)
     base, error = _baseline(torch, output, selected, calibration)
-    observer = _CycleObserver(output, selected, interval_ms, base, error)
+    native_observer = profiler_kwargs.get("execution_trace_observer")
+    if native_observer is None:
+        observer_type = getattr(torch.profiler, "ExecutionTraceObserver", None)
+        factory = getattr(observer_type, "build_execution_trace_obs_from_env", None)
+        if factory is not None:
+            native_observer = factory()
+    observer = _CycleObserver(
+        output,
+        selected,
+        interval_ms,
+        base,
+        error,
+        native_observer,
+        profiler_kwargs.get("on_trace_ready"),
+        metrics,
+    )
     return {
+        **profiler_kwargs,
         "execution_trace_observer": observer,
         "on_trace_ready": observer.on_trace_ready,
     }

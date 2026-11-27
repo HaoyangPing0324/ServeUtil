@@ -20,6 +20,9 @@ let report,
   bounds = [0, 1],
   drag = null,
   targets = [],
+  links = [],
+  eventLinks = new WeakMap(),
+  chosenLink = null,
   titleWidth = 200;
 const fmt = (us) =>
   Math.abs(us) >= 1e6
@@ -35,13 +38,91 @@ function option(select, value, label) {
 }
 function rankLabel(rank) {
   const t = report?.traces.find((t) => t.rank === rank);
-  if (!t?.node) return "Rank " + rank;
+  if (!t?.node) return "Rank " + (t?.global_rank ?? rank);
   const parts = rank.split("/");
   return (
     (new Set(report.traces.map((t) => t.node)).size > 1 ? t.node + " / " : "") +
     (t.role && t.role !== "worker" ? t.role + " / " : "") +
     "Rank " +
-    parts.at(-1)
+    (t.global_rank ?? parts.at(-1))
+  );
+}
+function displayName(event) {
+  return $("names").value === "original"
+    ? event.original || event.name
+    : event.name;
+}
+function measure(value) {
+  if (!Number.isFinite(value)) return "—";
+  if (value === 0) return "0";
+  if (Math.abs(value) < 0.001) return value.toExponential(2);
+  return Number(value.toPrecision(3)).toLocaleString("en-US", {
+    maximumSignificantDigits: 3,
+  });
+}
+function rateLabel(value, unit) {
+  if (unit === "GB/s" && value > 0 && value < 1) {
+    if (value >= 0.001) return measure(value * 1000) + " MB/s";
+    if (value >= 0.000001) return measure(value * 1000000) + " kB/s";
+    return measure(value * 1e9) + " B/s";
+  }
+  return measure(value) + (unit ? " " + unit : "");
+}
+function visibleTrace(t) {
+  return (
+    (!$("node").value || t.node === $("node").value) &&
+    (!$("rank").value || t.rank === $("rank").value)
+  );
+}
+function repopulateRanks() {
+  $("rank").replaceChildren();
+  option($("rank"), "", "All ranks");
+  for (const t of report.traces)
+    if (!$("node").value || t.node === $("node").value)
+      option($("rank"), t.rank, rankLabel(t.rank));
+}
+function updateIntervals() {
+  $("interval").replaceChildren();
+  option($("interval"), "", "Full capture");
+  const selectedRanks = new Set(
+    report.traces.filter(visibleTrace).map((t) => t.rank),
+  );
+  const available = stages
+    .map((s, i) => ({ ...s, i }))
+    .filter((s) => selectedRanks.has(s.rank));
+  const preferred = available.filter((s) =>
+    /prefill|extend|decode|step|forward/i.test(s.e.name),
+  );
+  for (const s of (preferred.length ? preferred : available).slice(0, 1000))
+    option(
+      $("interval"),
+      String(s.i),
+      rankLabel(s.rank) +
+        " · " +
+        short(displayName(s.e), 44) +
+        " · " +
+        fmt(s.e.ts),
+    );
+}
+function selectedClock(us) {
+  const trace = report.traces.find((t) => t.rank === $("rank").value);
+  const local = $("clock").value === "local_utc";
+  const epoch = local ? trace?.rank_origin_unix_ns : report.time_origin_unix_ns;
+  if ((local || $("clock").value === "utc") && epoch) {
+    const elapsed = us - (local ? trace.rank_origin_us : 0);
+    const ns = BigInt(epoch) + BigInt(Math.round(elapsed * 1000));
+    const iso = new Date(Number(ns / 1000000n)).toISOString();
+    return (
+      iso.slice(11, 19) +
+      "." +
+      String(ns % 1000000000n)
+        .padStart(9, "0")
+        .slice(0, 6)
+    );
+  }
+  return fmt(
+    us -
+      ($("clock").value === "rank" && trace ? (trace.rank_origin_us ?? 0) : 0),
   );
 }
 function short(text, n) {
@@ -85,17 +166,47 @@ function load(data) {
   if (data?.schema !== "serveutil.report/1")
     throw Error("Choose a ServeUtil report (.html or report JSON).");
   report = data;
-  document.body.classList.remove('empty');
-  $("view").value = data.initial_view === "communication" ? "communication" : "overview";
+  for (const t of data.traces) {
+    if (
+      !t.rank_origin_unix_ns &&
+      /^[0-9]+$/.test(t.raw_epoch) &&
+      Number.isFinite(t.raw_begin)
+    ) {
+      t.rank_origin_unix_ns = String(
+        BigInt(t.raw_epoch) + BigInt(Math.round(t.raw_begin * 1000)),
+      );
+      t.rank_origin_us = 0;
+      if (!data.time_origin_unix_ns && data.traces.length === 1)
+        data.time_origin_unix_ns = t.rank_origin_unix_ns;
+    }
+  }
+  chosenLink = null;
+  $("node").replaceChildren();
+  option($("node"), "", "All nodes");
+  const nodes = [...new Set(data.traces.map((t) => t.node).filter(Boolean))];
+  for (const node of nodes) option($("node"), node, node);
+  $("nodeControl").hidden = !nodes.length;
+  $("clock").replaceChildren();
+  option(
+    $("clock"),
+    "capture",
+    data.aligned ? "Capture elapsed" : "Independent origins",
+  );
+  option($("clock"), "rank", "Rank elapsed");
+  if (data.time_origin_unix_ns) option($("clock"), "utc", "UTC");
+  else if (data.traces.some((t) => t.rank_origin_unix_ns))
+    option($("clock"), "local_utc", "Rank-local UTC");
+  $("names").value = "short";
+  document.body.classList.remove("empty");
+  $("view").value =
+    data.initial_view === "communication" ? "communication" : "overview";
   let lo = Infinity,
     hi = -Infinity;
   stages = [];
   $("rank").replaceChildren();
   option($("rank"), "", "All ranks");
-  const ranks = new Set(),
-    depths = new Set();
+  const depths = new Set();
   for (const t of data.traces) {
-    ranks.add(t.rank);
     depthOf(t.events);
     t.hasPhases = t.events.some(
       (e) =>
@@ -122,20 +233,16 @@ function load(data) {
   option($("depth"), "leaf", "Leaf only");
   option($("depth"), "all", "All levels");
   $("depth").value = "top";
-  for (const rank of ranks) option($("rank"), rank, rankLabel(rank));
+  repopulateRanks();
+  links = buildLinks(data);
+  eventLinks = new WeakMap();
+  for (const link of links) {
+    if (link.transfer) eventLinks.set(link.transfer, link);
+    for (const end of link.ends) if (end.event) eventLinks.set(end.event, link);
+  }
   bounds = Number.isFinite(lo) ? [lo, Math.max(hi, lo + 1)] : [0, 1];
   [windowStart, windowEnd] = bounds;
-  $("interval").replaceChildren();
-  option($("interval"), "", "Full capture");
-  const preferred = stages.filter((s) =>
-    /prefill|extend|decode|step|forward/i.test(s.e.name),
-  );
-  for (const s of (preferred.length ? preferred : stages).slice(0, 1000))
-    option(
-      $("interval"),
-      String(stages.indexOf(s)),
-      rankLabel(s.rank) + " · " + short(s.e.name, 44) + " · " + fmt(s.e.ts),
-    );
+  updateIntervals();
   $("title").textContent = data.engine + " timeline";
   $("summary").textContent =
     data.traces.length +
@@ -144,7 +251,8 @@ function load(data) {
     " · " +
     (data.aligned ? "capture time" : "independent trace origins");
   if (data.status === "failed") {
-    $("summary").textContent += " · Incomplete capture — see collection details";
+    $("summary").textContent +=
+      " · Incomplete capture — see collection details";
   }
   if (Object.keys(data.timing || {}).length > 1) {
     const worst = Math.max(
@@ -158,9 +266,12 @@ function load(data) {
       engine: data.engine,
       status: data.status,
       error: data.error || undefined,
-      collectionErrors: data.collection_errors?.length ? data.collection_errors : undefined,
-      missingDeviceActivity: data.traces.filter(t => t.device_activity_unavailable)
-        .map(t => ({rank: t.rank, reason: t.device_activity_unavailable})),
+      collectionErrors: data.collection_errors?.length
+        ? data.collection_errors
+        : undefined,
+      missingDeviceActivity: data.traces
+        .filter((t) => t.device_activity_unavailable)
+        .map((t) => ({ rank: t.rank, reason: t.device_activity_unavailable })),
       aligned: data.aligned,
       clockAlignment: data.alignment_note,
       telemetry: data.telemetry,
@@ -214,7 +325,7 @@ function refresh() {
     return groups.get(key);
   }
   for (const t of report.traces) {
-    if (rank && rank !== t.rank) continue;
+    if (!visibleTrace(t)) continue;
     for (const e of t.events) {
       const k = e.kind;
       if (mode === "hardware") continue;
@@ -262,10 +373,15 @@ function refresh() {
   }
   const selected = report.traces.find((t) => t.rank === rank);
   const hw = report.hardware.filter((c) => {
+    if ($("node").value && c.node !== $("node").value) return false;
     if (!selected) return true;
     if (c.node && c.node !== selected.node) return false;
     const deviceMetric = /^(GPU|MIG)-/.test(c.device);
-    return !deviceMetric || !selected.devices?.length || selected.devices.includes(c.device);
+    return (
+      !deviceMetric ||
+      !selected.devices?.length ||
+      selected.devices.includes(c.device)
+    );
   });
   if (mode === "overview" || mode === "hardware")
     for (const c of hw) {
@@ -288,17 +404,44 @@ function refresh() {
       });
     }
   resources(hw, mode);
-  transferDetails();
+  const transfers = (report.transfers || []).filter(transferInScope);
+  transferDetails(transfers);
+  showLinks(mode);
   if (["overview", "hardware", "kernel"].includes(mode)) computeResources(rank);
   if (mode === "communication") collectiveResources(rank);
-  if (report.transfers?.length && ["overview", "communication"].includes(mode))
-    groups.set("kv-handoff", {
-      label: "KV handoff · Prefill → Decode",
-      kind: "communication",
-      events: report.transfers,
-    });
+  if (transfers.length && ["overview", "communication"].includes(mode))
+    for (const t of transfers) {
+      if (roleInScope(t.source_node, "prefill")) {
+        const key = "kv/source/" + (t.source_node || "");
+        const send = row(
+          key,
+          (t.source_node || "Prefill") + " · KV send",
+          "communication",
+        );
+        send.events.push(t);
+      }
+      if (t.receive_us != null && roleInScope(t.destination_node, "decode")) {
+        const key = "kv/receive/" + (t.destination_node || "");
+        const receive = row(
+          key,
+          (t.destination_node || "Decode") + " · KV received",
+          "communication",
+        );
+        receive.events.push({
+          name: "KV received",
+          ts: t.receive_us,
+          dur: 0.001,
+          transfer: t,
+        });
+      }
+    }
   items = report.findings.filter(
     (e) =>
+      (!$("node").value ||
+        e.node === $("node").value ||
+        report.traces.some(
+          (t) => t.rank === e.rank && t.node === $("node").value,
+        )) &&
       (!rank ||
         e.rank === rank ||
         (e.node &&
@@ -358,11 +501,26 @@ function resources(hw, mode) {
   root.replaceChildren();
   panel.hidden = !hw.length;
   for (const c of hw) {
-    const primary = ["hbm.read", "hbm.write", "hbm.total_estimated",
-      "tensor.active", "nvlink.tx", "pcie.tx", "rdma.tx", "netdev.tx"];
-    if (mode === "communication" && !/^(nvlink|pcie|rdma|netdev)\./.test(c.metric)) continue;
-    if (!["hardware", "communication"].includes(mode) &&
-        (mode !== "overview" || !primary.includes(c.metric))) continue;
+    const primary = [
+      "hbm.read",
+      "hbm.write",
+      "hbm.total_estimated",
+      "tensor.active",
+      "nvlink.tx",
+      "pcie.tx",
+      "rdma.tx",
+      "netdev.tx",
+    ];
+    if (
+      mode === "communication" &&
+      !/^(nvlink|pcie|rdma|netdev)\./.test(c.metric)
+    )
+      continue;
+    if (
+      !["hardware", "communication"].includes(mode) &&
+      (mode !== "overview" || !primary.includes(c.metric))
+    )
+      continue;
     let area = 0,
       covered = 0;
     for (const [end, value, start] of c.points) {
@@ -383,9 +541,9 @@ function resources(hw, mode) {
       fraction = document.createElement("span");
     b.className = "metric";
     label.textContent = deviceLabel(c) + " · " + c.name;
-    v.textContent = mean.toFixed(1) + " " + c.unit;
+    v.textContent = rateLabel(mean, c.unit);
     fraction.textContent = c.baseline
-      ? ((100 * mean) / c.baseline.value).toFixed(1) + "% of reference"
+      ? measure((100 * mean) / c.baseline.value) + "% of reference"
       : "";
     b.append(label, v, fraction);
     b.onclick = () =>
@@ -404,11 +562,396 @@ function resources(hw, mode) {
   }
   panel.hidden = !root.childElementCount;
 }
-function transferDetails() {
+function importedLinks(traces) {
+  const unique = new Map(),
+    groups = new Map(),
+    linked = [];
+  for (const t of traces)
+    unique.set(t.global_rank, (unique.get(t.global_rank) || 0) + 1);
+  for (const [ti, t] of traces.entries()) {
+    if (
+      t.raw_begin == null ||
+      !Number.isInteger(t.global_rank) ||
+      unique.get(t.global_rank) !== 1
+    )
+      continue;
+    for (const [ei, e] of t.events.entries()) {
+      const op = e.collective,
+        ranks = op?.group.ranks;
+      if (
+        !op?.comms_id ||
+        !op.group.id ||
+        !Number.isSafeInteger(op.seq) ||
+        !Number.isSafeInteger(op.bytes) ||
+        !ranks?.includes(t.global_rank) ||
+        ranks.length !== op.group.size ||
+        new Set(ranks).size !== ranks.length
+      )
+        continue;
+      const kind = ["send", "recv"].includes(op.op) ? "send_recv" : op.op;
+      const key = JSON.stringify([
+        op.comms_id,
+        op.group.id,
+        ranks,
+        op.seq,
+        kind,
+        op.dtype,
+        op.bytes,
+      ]);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push({ ti, ei, rank: t.global_rank, op, kind });
+    }
+  }
+  for (const parts of groups.values()) {
+    const { kind, op } = parts[0];
+    if (
+      parts.length < 2 ||
+      new Set(parts.map((p) => p.rank)).size !== parts.length
+    )
+      continue;
+    if (kind === "send_recv") {
+      parts.sort(
+        (a, b) => Number(a.op.op === "recv") - Number(b.op.op === "recv"),
+      );
+      const [send, recv] = parts;
+      if (parts.length !== 2 || send.op.op !== "send" || recv.op.op !== "recv")
+        continue;
+      function unambiguousPeer(endpoint, actual) {
+        const n = endpoint.op.peer_rank,
+          ranks = op.group.ranks;
+        if (!Number.isSafeInteger(n) || n < 0) return false;
+        const candidates = new Set();
+        if (ranks.includes(n)) candidates.add(n);
+        if (n < ranks.length) candidates.add(ranks[n]);
+        return candidates.size === 1 && candidates.has(actual);
+      }
+      if (
+        !unambiguousPeer(send, recv.rank) ||
+        !unambiguousPeer(recv, send.rank)
+      )
+        continue;
+    } else if (parts.length !== op.group.ranks.length) continue;
+    linked.push({
+      kind,
+      evidence: "imported_ids",
+      endpoints: parts.map((p) => [p.ti, p.ei]),
+    });
+  }
+  return linked;
+}
+function buildLinks(data) {
+  const result = [],
+    paired = new Set();
+  const endpoint = (t, e) => ({
+    trace: t,
+    node: t.node,
+    rank: t.rank,
+    event: e,
+    ts: e.ts,
+    dur: e.collective?.duration_us ?? e.dur,
+  });
+  for (const match of data.communication_links ?? importedLinks(data.traces)) {
+    const ends = match.endpoints.map(([ti, ei]) => {
+      const t = data.traces[ti],
+        e = t?.events[ei];
+      return e?.collective ? endpoint(t, e) : null;
+    });
+    if (ends.some((e) => !e)) continue;
+    for (const end of ends) paired.add(end.event);
+    result.push({
+      kind: match.kind,
+      evidence: match.evidence,
+      ends,
+      op: ends[0].event.collective,
+    });
+  }
+  for (const t of data.traces)
+    for (const event of t.events) {
+      const op = event.collective;
+      if (!op || op.part_of_operation || paired.has(event)) continue;
+      result.push({
+        kind: op.op,
+        evidence: "single",
+        ends: [endpoint(t, event)],
+        op,
+      });
+    }
+  function roleEnd(row, node, role, ts) {
+    const candidates =
+      node == null
+        ? []
+        : data.traces.filter((t) => t.node === node && t.role === role);
+    const trace = candidates.length === 1 ? candidates[0] : undefined;
+    return {
+      trace,
+      node,
+      rank: trace?.rank,
+      role,
+      ts,
+      dur: role === "prefill" ? row.dur : 0,
+    };
+  }
+  for (const row of [
+    ...(data.transfers || []),
+    ...(data.unplaced_transfers || []),
+  ]) {
+    const ends = [roleEnd(row, row.source_node, "prefill", row.ts)];
+    if (row.destination_node || row.receive_end_ns || row.decode_start_ns)
+      ends.push(
+        roleEnd(
+          row,
+          row.destination_node,
+          "decode",
+          row.receive_us ?? row.decode_us,
+        ),
+      );
+    result.push({
+      kind: "kv",
+      evidence: ends.length === 2 ? "otel" : "single",
+      ends,
+      transfer: row,
+    });
+  }
+  return result;
+}
+const linkTitles = {
+  send_recv: "Send → receive",
+  all_reduce: "AllReduce",
+  all_gather: "AllGather",
+  all_to_all: "AllToAll",
+  reduce_scatter: "ReduceScatter",
+  broadcast: "Broadcast",
+  kv: "KV handoff",
+};
+const evidenceNames = {
+  imported_ids: "Matching IDs in imported traces; shared capture unverified",
+  comms_id: "Matching communication ID",
+  group_sequence: "Inferred from group and sequence",
+  single: "One recorded endpoint",
+  otel: "Matching request trace and bootstrap room",
+};
+function routeLabel(end) {
+  if (end.role) return (end.node ? end.node + " / " : "") + end.role;
+  return end.trace ? rankLabel(end.trace.rank) : end.node || "Unknown node";
+}
+function byteLabel(n) {
+  if (n == null) return "Payload unavailable";
+  if (n >= 1048576) return measure(n / 1048576) + " MiB";
+  if (n >= 1024) return measure(n / 1024) + " KiB";
+  return n + " B";
+}
+function linkMatches(link) {
+  const node = $("node").value,
+    rank = $("rank").value;
+  return (
+    link.ends.some(
+      (e) => (!node || e.node === node) && (!rank || e.rank === rank),
+    ) &&
+    (link.ends.every((e) => e.ts == null) ||
+      link.ends.some(
+        (e) =>
+          e.ts != null &&
+          e.ts <= windowEnd &&
+          e.ts + (e.dur || 0) >= windowStart,
+      ))
+  );
+}
+function inspectLink(link) {
+  chosenLink = link;
+  const box = $("linkInspector");
+  box.replaceChildren();
+  const title = document.createElement("strong"),
+    context = document.createElement("p");
+  title.textContent =
+    (linkTitles[link.kind] || link.kind) +
+    " · " +
+    byteLabel(link.transfer?.logical_bytes ?? link.op?.bytes);
+  const receipt = link.transfer;
+  context.textContent = [
+    evidenceNames[link.evidence],
+    receipt
+      ? "Trace " +
+        (receipt.trace_id || "?") +
+        " · room " +
+        (receipt.bootstrap_room || "?")
+      : "Group " +
+        (link.op.group?.id ?? "?") +
+        " · sequence " +
+        (link.op.seq ?? "?"),
+    link.ends.length > 1 && !report.aligned
+      ? "Independent rank clocks; cross-rank time order unavailable"
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  box.append(title, context);
+  const path = document.createElement("div");
+  path.className = "link-endpoints";
+  for (const [index, end] of link.ends.entries()) {
+    if (index) {
+      const arrow = document.createElement("span");
+      arrow.className = "link-connector";
+      arrow.textContent = ["send_recv", "kv"].includes(link.kind) ? "→" : "↔";
+      path.append(arrow);
+    }
+    const b = document.createElement("button"),
+      node = document.createElement("strong"),
+      note = document.createElement("small");
+    node.textContent = routeLabel(end);
+    const action =
+      end.event?.collective?.direction || end.role || "Participant";
+    note.textContent =
+      action +
+      (end.ts != null ? " · " + selectedClock(end.ts) : " · Time unavailable");
+    b.append(node, note);
+    b.onclick = () => {
+      const trace = end.trace;
+      if (trace) {
+        $("node").value = trace.node || "";
+        repopulateRanks();
+        $("rank").value = trace.rank;
+        updateIntervals();
+      }
+      details(routeLabel(end), {
+        Evidence: evidenceNames[link.evidence],
+        Node: end.node,
+        "Global rank": trace?.global_rank,
+        Role: end.role || trace?.role,
+        Operation: link.kind,
+        "Original kernel": end.event?.original || end.event?.name,
+        "Communication ID": link.op?.comms_id,
+        "Group members": link.op?.group?.ranks,
+        Sequence: link.op?.seq,
+        Bytes: receipt?.logical_bytes ?? end.event?.collective?.bytes,
+        "Trace ID": receipt?.trace_id,
+        "Bootstrap room": receipt?.bootstrap_room,
+        "Endpoint attribution": receipt
+          ? "Scheduler span on this serving role"
+          : "Device kernel in the rank trace",
+        "Clock uncertainty (µs)": report.timing?.[end.node]?.max_error_us,
+      });
+      if (end.ts != null) {
+        const pad = Math.max(40, (end.dur || 0) * 0.8);
+        setWindow(end.ts - pad, end.ts + (end.dur || 0) + pad);
+      } else refresh();
+    };
+    path.append(b);
+  }
+  box.append(path);
+  if (
+    report.aligned &&
+    link.ends.length > 1 &&
+    link.ends.every((e) => e.ts != null)
+  ) {
+    const zoom = document.createElement("button");
+    zoom.className = "link-focus";
+    zoom.textContent = "Focus operation";
+    zoom.onclick = () => {
+      const a = Math.min(...link.ends.map((e) => e.ts));
+      const b = Math.max(...link.ends.map((e) => e.ts + (e.dur || 0)));
+      const pad = Math.max(25, (b - a) * 0.25);
+      setWindow(a - pad, b + pad);
+    };
+    box.append(zoom);
+  }
+}
+function showLinks(mode) {
+  const section = $("linksSection"),
+    table = $("linkList"),
+    inspector = $("linkInspector");
+  table.replaceChildren();
+  inspector.replaceChildren();
+  section.hidden = mode !== "communication" || !links.length;
+  if (section.hidden) return;
+  const families = new Map();
+  for (const link of links) {
+    if (!linkMatches(link)) continue;
+    const key = JSON.stringify([
+      link.kind,
+      link.evidence,
+      link.op?.group?.id,
+      ...link.ends.map((e) => [e.node, e.rank, e.role]),
+    ]);
+    if (!families.has(key)) families.set(key, []);
+    families.get(key).push(link);
+  }
+  const n = [...families.values()].reduce(
+    (sum, group) => sum + group.length,
+    0,
+  );
+  $("linksCount").textContent = n + " operations in selection";
+  if (!n) return;
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", "Communication path");
+  const all = [...families.values()];
+  for (const [i, group] of all.entries()) {
+    const first = group[0];
+    option(
+      select,
+      String(i),
+      (linkTitles[first.kind] || first.kind) +
+        " · " +
+        first.ends
+          .map(routeLabel)
+          .join(["send_recv", "kv"].includes(first.kind) ? " → " : " ↔ ") +
+        " · " +
+        group.length,
+    );
+  }
+  const chooser = document.createElement("input"),
+    count = document.createElement("span");
+  chooser.type = "number";
+  chooser.min = "1";
+  chooser.step = "1";
+  chooser.setAttribute("aria-label", "Operation number");
+  const selectedFamily = all.findIndex((group) => group.includes(chosenLink));
+  select.selectedIndex = Math.max(0, selectedFamily);
+  chooser.value = String(
+    Math.max(0, all[select.selectedIndex].indexOf(chosenLink)) + 1,
+  );
+  function choose() {
+    const group = all[select.selectedIndex];
+    chooser.max = String(group.length);
+    const index = Math.max(
+      0,
+      Math.min(group.length - 1, Math.floor(Number(chooser.value) || 1) - 1),
+    );
+    chooser.value = String(index + 1);
+    count.textContent = "of " + group.length;
+    inspectLink(group[index]);
+  }
+  select.onchange = () => {
+    chooser.value = "1";
+    choose();
+  };
+  chooser.onchange = choose;
+  const lab = document.createElement("label");
+  lab.append("Operation ", chooser, " ", count);
+  table.append(select, lab);
+  choose();
+}
+function transferInScope(t) {
+  return (
+    roleInScope(t.source_node, "prefill") ||
+    roleInScope(t.destination_node, "decode")
+  );
+}
+function roleInScope(node, role) {
+  const selected = report.traces.find((tr) => tr.rank === $("rank").value);
+  const selectedNode = selected?.node || $("node").value;
+  if (selectedNode && selectedNode !== node) return false;
+  return (
+    !selected ||
+    (selected.role === role &&
+      report.traces.filter((t) => t.node === node && t.role === role).length ===
+        1)
+  );
+}
+function transferDetails(transfers) {
   const section = $("kvSection"),
     table = $("kvTable");
   table.replaceChildren();
-  const records = (report.transfers || []).filter(
+  const records = transfers.filter(
     (t) => t.ts < windowEnd && t.ts + t.dur > windowStart,
   );
   for (const row of records.slice(0, 12)) {
@@ -430,6 +973,9 @@ function transferDetails() {
   }
   for (const m of report.kv_metrics || []) {
     if (m.status !== "ok") continue;
+    if (m.node && !roleInScope(m.node, m.role)) continue;
+    const role = report.traces.find((t) => t.rank === $("rank").value)?.role;
+    if (role && m.role && role !== m.role) continue;
     const b = document.createElement("button");
     b.className = "kv-item";
     b.textContent =
@@ -448,7 +994,7 @@ function transferDetails() {
 function computeResources(rank) {
   const root = $("metrics");
   for (const t of report.traces) {
-    if (rank && t.rank !== rank) continue;
+    if (!visibleTrace(t)) continue;
     const stats = new Map();
     for (const e of t.events) {
       if (!e.gemm || e.ts < windowStart || e.ts + e.dur > windowEnd) continue;
@@ -478,15 +1024,17 @@ function computeResources(rank) {
         fraction = document.createElement("span");
       b.className = "metric";
       label.textContent = rankLabel(t.rank) + " · " + g.dtype + " GEMM";
-      v.textContent = rate.toFixed(2) + " " + g.unit;
+      v.textContent = rateLabel(rate, g.unit);
       fraction.textContent = g.ref
-        ? ((100 * rate) / g.ref.value).toFixed(1) + "% of GEMM reference"
+        ? measure((100 * rate) / g.ref.value) + "% of GEMM reference"
         : "";
       b.append(label, v, fraction);
       b.onclick = () =>
         details("Shape-derived GEMM throughput", {
           "Matched kernels": g.count,
-          [g.unit === "TOP/s" ? "Estimated integer operations" : "Estimated FLOPs"]: g.operations,
+          [g.unit === "TOP/s"
+            ? "Estimated integer operations"
+            : "Estimated FLOPs"]: g.operations,
           "Sum of GPU kernel durations": fmt(g.duration),
           "Measured GEMM reference": g.ref,
           Scope:
@@ -500,38 +1048,51 @@ function computeResources(rank) {
 function collectiveResources(rank) {
   const root = $("metrics");
   for (const trace of report.traces) {
-    if (rank && rank !== trace.rank) continue;
+    if (!visibleTrace(trace)) continue;
     const groups = new Map();
     for (const event of trace.events) {
       const op = event.collective;
-      if (op?.algorithm_GB_s == null || event.ts < windowStart ||
-          event.ts + op.duration_us > windowEnd) continue;
-      const key = JSON.stringify([event.device, op.group.id, op.op, op.peer_rank]);
+      if (
+        op?.algorithm_GB_s == null ||
+        event.ts < windowStart ||
+        event.ts + op.duration_us > windowEnd
+      )
+        continue;
+      const key = JSON.stringify([
+        event.device,
+        op.group.id,
+        op.op,
+        op.peer_rank,
+      ]);
       const g = groups.get(key) || { op, count: 0, bytes: 0, us: 0 };
       g.count++;
       g.bytes += op.bytes;
       g.us += op.duration_us;
       groups.set(key, g);
     }
-    for (const {op, count, bytes, us} of groups.values()) {
+    for (const { op, count, bytes, us } of groups.values()) {
       const card = document.createElement("button");
       card.className = "metric";
       const label = document.createElement("small");
       const value = document.createElement("strong");
       const caption = document.createElement("span");
-      const direction = op.peer_rank == null ? "" :
-        (op.direction === "recv" ? " ← " : " → ") + "rank " + op.peer_rank;
+      const direction =
+        op.peer_rank == null
+          ? ""
+          : (op.direction === "recv" ? " ← " : " → ") + "rank " + op.peer_rank;
       label.textContent = rankLabel(trace.rank) + " · " + op.op + direction;
-      value.textContent = (bytes / (1000 * us)).toPrecision(3) + " GB/s";
+      value.textContent = rateLabel(bytes / (1000 * us), "GB/s");
       caption.textContent = count + " operations · group " + op.group.id;
       card.append(label, value, caption);
-      card.onclick = () => details(label.textContent, {
-        "Logical bytes": bytes,
-        "Complete operations": count,
-        "Sum of GPU operation durations": fmt(us),
-        "Rank group": op.group.ranks,
-        "Method": "Logical payload divided by GPU operation time. Select an event for its size, peers and reference."
-      });
+      card.onclick = () =>
+        details(label.textContent, {
+          "Logical bytes": bytes,
+          "Complete operations": count,
+          "Sum of GPU operation durations": fmt(us),
+          "Rank group": op.group.ranks,
+          Method:
+            "Logical payload divided by GPU operation time. Select an event for its size, peers and reference.",
+        });
       root.append(card);
       $("rates").hidden = false;
     }
@@ -563,19 +1124,21 @@ function draw() {
   const x = (t) => left + ((t - windowStart) / delta) * width;
   ctx.font = "11px system-ui";
   ctx.fillStyle = "#506575";
-  ctx.fillText("Capture time", 10, 19);
+  ctx.fillText($("clock").selectedOptions[0].text, 10, 19);
   for (let i = 0; i <= 5; i++) {
     const xx = left + (width * i) / 5;
     ctx.fillStyle = "#e2e9ed";
     ctx.fillRect(xx, 25, 1, height);
     ctx.fillStyle = "#506575";
+    const tick = selectedClock(windowStart + (delta * i) / 5);
     ctx.fillText(
-      fmt(windowStart + (delta * i) / 5),
-      Math.min(xx + 3, w - 55),
+      tick,
+      Math.min(xx + 3, w - ctx.measureText(tick).width - 3),
       19,
     );
   }
   targets = [];
+  const linkedPositions = [];
   rows.forEach((r, index) => {
     const y = 29 + index * 32;
     ctx.fillStyle = "#e1e8eb";
@@ -612,14 +1175,7 @@ function draw() {
         const unit = r.unit || "";
         ctx.fillStyle = "#385c55";
         ctx.font = "10px system-ui";
-        ctx.fillText(
-          "↑ " +
-            max.toLocaleString(undefined, { maximumFractionDigits: 2 }) +
-            " " +
-            unit,
-          left + 4,
-          y + 10,
-        );
+        ctx.fillText("↑ " + rateLabel(max, unit), left + 4, y + 10);
       }
       targets.push({ y, row: r, points });
     } else {
@@ -633,15 +1189,55 @@ function draw() {
         ctx.fillRect(a, y + 5, sw, 21);
         if (sw > 42) {
           ctx.fillStyle = "white";
-          ctx.fillText(short(e.name, Math.floor(sw / 6.8)), a + 3, y + 20);
+          ctx.fillText(
+            short(displayName(e), Math.floor(sw / 6.8)),
+            a + 3,
+            y + 20,
+          );
         }
         visible.push({ a, b, e });
+        if ($("view").value === "communication" && chosenLink) {
+          const member = chosenLink.ends.findIndex((end) =>
+            end.event
+              ? end.event === e
+              : chosenLink.transfer &&
+                ((end.role === "prefill" && chosenLink.transfer === e) ||
+                  (end.role === "decode" &&
+                    chosenLink.transfer === e.transfer)),
+          );
+          if (member >= 0 && e.ts >= windowStart)
+            linkedPositions.push({ member, x: x(e.ts), y: y + 15 });
+        }
       }
       targets.push({ y, row: r, visible });
     }
     ctx.restore();
   });
-  $("range").textContent = fmt(windowStart) + " – " + fmt(windowEnd);
+  if (linkedPositions.length) {
+    linkedPositions.sort((a, b) => a.member - b.member);
+    ctx.save();
+    ctx.strokeStyle = "#56356f";
+    ctx.fillStyle = "white";
+    ctx.lineWidth = 2;
+    if (report.aligned && linkedPositions.length > 1) {
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      linkedPositions.forEach((p, i) =>
+        i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y),
+      );
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    for (const p of linkedPositions) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  $("range").textContent =
+    selectedClock(windowStart) + " – " + selectedClock(windowEnd);
 }
 function selectAt(px, py) {
   const hit = targets.find((t) => py >= t.y && py < t.y + 32);
@@ -659,14 +1255,15 @@ function selectAt(px, py) {
       details(r.name, {
         Device: r.device,
         Time: fmt(best[0]),
-        Value: best[1],
+        Value: rateLabel(best[1], r.unit),
+        "Original sample": best[1],
         Unit: r.unit,
         Source: r.source,
         Scope: r.scope,
         "Sample window": best.length > 2 ? fmt(best[0] - best[2]) : undefined,
         Baseline: r.baseline?.value,
         "Baseline utilization": r.baseline?.value
-          ? ((100 * best[1]) / r.baseline.value).toFixed(1) + "%"
+          ? measure((100 * best[1]) / r.baseline.value) + "%"
           : undefined,
       });
     }
@@ -675,23 +1272,33 @@ function selectAt(px, py) {
   const target = hit.visible.findLast(
     (t) => px >= t.a && px <= Math.max(t.a + 1, t.b),
   );
+  const match = target && eventLinks.get(target.e.transfer || target.e);
+  if (match && $("view").value === "communication") {
+    chosenLink = match;
+    refresh();
+  }
   if (target?.e.collective) {
     const op = target.e.collective;
     details(op.op, {
-      "Kernel": target.e.original || target.e.name,
-      "Direction": op.direction, "Peer rank": op.peer_rank,
-      "Group": op.group, "Sequence": op.seq, "Data type": op.dtype,
-      "Logical bytes": op.bytes, "Operation time": op.duration_us == null ? null : fmt(op.duration_us),
+      Kernel: target.e.original || target.e.name,
+      Direction: op.direction,
+      "Peer rank": op.peer_rank,
+      Group: op.group,
+      Sequence: op.seq,
+      "Data type": op.dtype,
+      "Logical bytes": op.bytes,
+      "Operation time": op.duration_us == null ? null : fmt(op.duration_us),
       "GPU kernels": op.kernel_count,
       "Algorithm bandwidth (GB/s)": op.algorithm_GB_s,
       "NCCL bus bandwidth (GB/s)": op.bus_GB_s,
-      "Relative to nccl-tests": op.reference_pct == null ? null : op.reference_pct.toFixed(1) + "%",
+      "Relative to nccl-tests":
+        op.reference_pct == null ? null : measure(op.reference_pct) + "%",
       "Measured reference": op.reference,
       "Part of a multi-kernel operation": op.part_of_operation,
-      "Unavailable": op.unavailable
+      Unavailable: op.unavailable,
     });
   } else if (target)
-    details(target.e.name, {
+    details(displayName(target.e), {
       ...target.e,
       ts: fmt(target.e.ts),
       dur: fmt(target.e.dur),
@@ -724,7 +1331,42 @@ canvas.onpointerup = (e) => {
 canvas.onpointercancel = () => {
   drag = null;
 };
-for (const id of ["view", "rank", "depth"]) $(id).onchange = refresh;
+for (const id of ["view", "depth"]) $(id).onchange = refresh;
+$("node").onchange = () => {
+  repopulateRanks();
+  if (["rank", "local_utc"].includes($("clock").value))
+    $("clock").value = "capture";
+  updateIntervals();
+  refresh();
+};
+$("rank").onchange = () => {
+  if (!$("rank").value && ["rank", "local_utc"].includes($("clock").value))
+    $("clock").value = "capture";
+  if (
+    $("clock").value === "local_utc" &&
+    !report.traces.find((t) => t.rank === $("rank").value)?.rank_origin_unix_ns
+  )
+    $("clock").value = "rank";
+  updateIntervals();
+  refresh();
+};
+$("clock").onchange = () => {
+  if (["rank", "local_utc"].includes($("clock").value) && !$("rank").value) {
+    const candidate = report.traces.find(
+      (t) =>
+        visibleTrace(t) &&
+        ($("clock").value !== "local_utc" || t.rank_origin_unix_ns),
+    );
+    if (candidate) $("rank").value = candidate.rank;
+    else $("clock").value = "capture";
+    updateIntervals();
+  }
+  refresh();
+};
+$("names").onchange = () => {
+  updateIntervals();
+  refresh();
+};
 $("interval").onchange = (e) => {
   if (!e.target.value) {
     setWindow(...bounds);
@@ -843,14 +1485,6 @@ async function importFile(file) {
       throw Error("This HTML file does not contain a ServeUtil capture.");
     return unpack(content[1]);
   }
-  if (
-    !file.name.endsWith(".gz") &&
-    /"schema"\s*:\s*"serveutil\.report\/1"/.test(
-      await file.slice(0, 1000).text(),
-    )
-  ) {
-    return JSON.parse(await file.text());
-  }
   const url = URL.createObjectURL(
     new Blob([$("import-worker").textContent], { type: "text/javascript" }),
   );
@@ -867,20 +1501,227 @@ async function importFile(file) {
     URL.revokeObjectURL(url);
   }
 }
-async function openFile(file) {
-  if (!file) return;
-  const status = document.body.classList.contains("empty") ? $("importStatus") : $("summary");
+async function portableFile(file) {
+  const stream = () =>
+    /\.gz$/i.test(file.name)
+      ? file.stream().pipeThrough(new DecompressionStream("gzip"))
+      : file.stream();
+  const reader = stream().getReader();
+  let prefix;
   try {
+    const chunk = await reader.read();
+    prefix = new TextDecoder().decode(chunk.value?.subarray(0, 8192));
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  if (
+    !/"schema"\s*:\s*"serveutil\.report\/1"|"encoding"\s*:\s*"gzip\+base64"/.test(
+      prefix,
+    )
+  )
+    return null;
+  const data = await unpack(await new Response(stream()).text());
+  return data?.schema === "serveutil.report/1" ? data : null;
+}
+async function openFiles(files) {
+  if (!files.length) return;
+  const status = document.body.classList.contains("empty")
+    ? $("importStatus")
+    : $("summary");
+  if (nativeFrame || !nativePanel.hidden) closeNative();
+  let sources = [],
+    traces = [],
+    hardware = [],
+    findings = [];
+  let last, problem;
+  for (const file of files) {
     status.textContent = "Reading " + file.name + "…";
-    load(await importFile(file));
-  } catch (err) {
-    status.textContent = err.message;
+    if (
+      /\.html$/i.test(file.name) &&
+      /id="capture-data"/i.test(await file.text())
+    ) {
+      if (files.length > 1) {
+        status.textContent = "Open standalone reports one at a time.";
+        return;
+      }
+      try {
+        const html = await file.text();
+        const data = await importFile(file);
+        setOriginals(rawSourcesIn(html));
+        if (data) load(data);
+        else await openNative();
+      } catch (err) {
+        status.textContent = err.message;
+      }
+      return;
+    }
+    const source = fileOriginal(file);
+    sources.push(source);
+    if (!/\.(json|gz)$/i.test(file.name)) continue;
+    try {
+      const portable = await portableFile(file);
+      if (portable && files.length === 1) {
+        setOriginals([]);
+        load(portable);
+        return;
+      }
+      if (portable) {
+        status.textContent = "Open portable reports one at a time.";
+        return;
+      }
+      last = await importFile(file);
+      if (
+        !last.traces?.length ||
+        last.traces.every((t) => !t.events.length && !t.counters.length)
+      )
+        continue;
+      for (const t of last.traces) {
+        const rank = files.length > 1 ? String(traces.length) : t.rank;
+        source.rank = rank;
+        traces.push({ ...t, rank });
+      }
+      hardware.push(...(last.hardware || []));
+      findings.push(...(last.findings || []));
+    } catch (err) {
+      problem = err;
+    }
+  }
+  setOriginals(sources);
+  if (traces.length) {
+    load({
+      ...last,
+      traces,
+      hardware,
+      findings,
+      aligned: traces.length === 1,
+      alignment_note:
+        traces.length > 1
+          ? "Each imported worker has its own origin. Open a capture report for clock-aligned global timing."
+          : last.alignment_note,
+    });
+  } else {
+    if (problem) status.textContent = problem.message;
+    await openNative();
   }
 }
 $("choose").onclick = () => $("file").click();
 $("file").onchange = async (e) => {
-  await openFile(e.target.files[0]);
+  await openFiles([...e.target.files]);
   e.target.value = "";
+};
+$("captureFolder").onchange = async (event) => {
+  const status = document.body.classList.contains("empty")
+    ? $("importStatus")
+    : $("summary");
+  const picked = [...event.target.files];
+  event.target.value = "";
+  if (!picked.length) return;
+  try {
+    const byPath = new Map(
+      picked.map((f) => [
+        f.webkitRelativePath.split("/").slice(1).join("/"),
+        f,
+      ]),
+    );
+    const manifestFile = byPath.get("capture.json");
+    if (!manifestFile)
+      throw Error("Select the capture folder containing capture.json.");
+    const manifest = JSON.parse(await manifestFile.text()),
+      traces = [],
+      sources = [];
+    const reportFile = byPath.get("report.html");
+    let data = reportFile ? await importFile(reportFile) : null;
+    const clocks = new Map(
+      (manifest.nodes || []).map((n) => [n.name, n.clock]),
+    );
+    const epochs = [];
+    for (const [i, entry] of manifest.traces.entries()) {
+      const f = byPath.get(entry.file.replaceAll("\\", "/"));
+      if (!f) throw Error("Missing capture file: " + entry.file);
+      const rank = String(entry.rank ?? i);
+      const source = {
+        ...fileOriginal(f),
+        rank,
+        node: entry.node,
+        title: rank + " · " + f.name,
+        kind: entry.auxiliary ? "auxiliary" : "trace",
+      };
+      sources.push(source);
+      if (entry.auxiliary) {
+        const auxiliary = (await importFile(f)).traces[0];
+        const clock = clocks.get(entry.node);
+        if (
+          auxiliary?.raw_epoch != null &&
+          (!entry.node ||
+            (clock?.uncertainty_ns != null && clock?.offset_ns != null))
+        )
+          source.epoch = String(
+            BigInt(auxiliary.raw_epoch) + BigInt(clock?.offset_ns ?? 0),
+          );
+        continue;
+      }
+      if (data) {
+        const t = data.traces.find((t) => t.rank === rank && t.file === f.name);
+        if (
+          t?.source_epoch_ns &&
+          (!entry.node ||
+            (clocks.get(entry.node)?.offset_ns != null &&
+              clocks.get(entry.node)?.uncertainty_ns != null))
+        )
+          source.epoch = t.source_epoch_ns;
+      } else {
+        const imported = await importFile(f);
+        const t = {
+          ...imported.traces[0],
+          rank,
+          node: entry.node,
+          role: entry.role,
+        };
+        traces.push(t);
+        const off = entry.node ? clocks.get(entry.node)?.offset_ns : 0;
+        if (
+          t.raw_epoch != null &&
+          off != null &&
+          (!entry.node || clocks.get(entry.node)?.uncertainty_ns != null)
+        )
+          source.epoch = String(BigInt(t.raw_epoch) + BigInt(off));
+        epochs.push(
+          source.epoch != null
+            ? BigInt(source.epoch) + BigInt(Math.round(t.raw_begin * 1000))
+            : null,
+        );
+      }
+    }
+    if (!data) {
+      if (!traces.length) throw Error("No worker traces found in capture.");
+      const aligned = epochs.every((x) => x != null);
+      if (aligned) {
+        const zero = epochs.reduce((a, b) => (a < b ? a : b));
+        traces.forEach((t, i) => {
+          const off = Number(epochs[i] - zero) / 1000;
+          for (const e of t.events) e.ts += off;
+          for (const c of t.counters)
+            for (const point of c.points) point[0] += off;
+        });
+      }
+      data = {
+        schema: "serveutil.report/1",
+        engine: manifest.engine,
+        traces,
+        aligned,
+        status: manifest.status,
+        telemetry: {},
+        hardware: [],
+        findings: [],
+        alignment_note: aligned ? undefined : "Independent worker clocks",
+      };
+    }
+    setOriginals(sources);
+    closeNative();
+    load(data);
+  } catch (err) {
+    status.textContent = err.message;
+  }
 };
 window.addEventListener("dragover", (e) => {
   if (!e.dataTransfer.types.includes("Files")) return;
@@ -894,12 +1735,13 @@ window.addEventListener("drop", (e) => {
   if (!e.dataTransfer.files.length) return;
   e.preventDefault();
   document.body.classList.remove("dragging");
-  openFile(e.dataTransfer.files[0]);
+  openFiles([...e.dataTransfer.files]);
 });
 new ResizeObserver(draw).observe(canvas.parentElement);
 unpack($("capture-data").textContent)
   .then((initial) => {
     if (initial) load(initial);
+    else if (originals.length) openNative();
   })
   .catch((err) => {
     $("importStatus").textContent = "Unable to read capture: " + err.message;

@@ -16,6 +16,7 @@ from .bundle import open_text
 from .calibration import reference_for
 from .collectives import CollectiveRecorder, match_nccl_reference
 from .overview import ANNOTATIONS, GPU_EVENTS, kernel_label, trace_items
+from .relationships import communication_links
 
 COMM = re.compile(
     r"nccl|all.?reduce|all.?gather|reduce.?scatter|all.?to.?all|sendrecv|cross_device_reduce",
@@ -242,6 +243,7 @@ def load_trace(path, rank, analysis=None):
         upstream=upstream,
         base=header.get("baseTimeNanoseconds"),
         nccl_version=header.get("distributedInfo.nccl_version"),
+        global_rank=header.get("distributedInfo.rank"),
         begin=begin,
         events=events,
         counters=series,
@@ -295,7 +297,7 @@ def make_report(path, *, analysis=None):
     nodes = {n["name"]: n for n in manifest.get("nodes", [])}
 
     def correction(name):
-        return nodes.get(name, {}).get("clock", {}).get("offset_ns", 0)
+        return (nodes.get(name, {}).get("clock") or {}).get("offset_ns", 0)
 
     epochs = [
         int(t["base"]) + correction(t.get("node")) + round(t["begin"] * 1000)
@@ -304,9 +306,20 @@ def make_report(path, *, analysis=None):
     ]
     origin = min(epochs, default=None)
     common_clock = len(epochs) == len(traces)
+    trace_nodes = {t.get("node") for t in traces}
+    if len(trace_nodes) > 1:
+        common_clock = common_clock and all(
+            isinstance((nodes.get(n, {}).get("clock") or {}).get("offset_ns"), int)
+            and isinstance(
+                (nodes.get(n, {}).get("clock") or {}).get("uncertainty_ns"), int
+            )
+            for n in trace_nodes
+        )
     opportunities = []
     for trace in traces:
         base = trace.pop("base")
+        if base is not None:
+            trace["source_epoch_ns"] = str(int(base) + correction(trace.get("node")))
         begin = trace.pop("begin")
         offset = (
             (int(base) + correction(trace.get("node")) - origin) / 1000
@@ -315,6 +328,9 @@ def make_report(path, *, analysis=None):
         )
         for e in trace["events"]:
             e["ts"] += offset
+        trace["rank_origin_us"] = begin + offset
+        if base is not None:
+            trace["rank_origin_unix_ns"] = str(int(base) + round(begin * 1000))
         for series in trace["counters"]:
             for point in series["points"]:
                 point[0] += offset
@@ -327,7 +343,7 @@ def make_report(path, *, analysis=None):
         ]
         telemetry = {
             name: {
-                "clock": n["clock"],
+                "clock": n.get("clock"),
                 "end_clock": n.get("end_clock"),
                 **n["telemetry"],
             }
@@ -487,6 +503,7 @@ def make_report(path, *, analysis=None):
                 }
                 value["reference_pct"] = 100 * absolute / ref["value"]
     transfers = []
+    unplaced_transfers = []
     if manifest.get("transfers"):
         transfer_file = (path / manifest["transfers"]).resolve()
         if not transfer_file.is_relative_to(path.resolve()):
@@ -502,6 +519,7 @@ def make_report(path, *, analysis=None):
         for transfer in json.loads(transfer_file.read_text(encoding="utf-8")):
             node = transfer.get("source_node")
             if not common_clock or (len(nodes) > 1 and node not in nodes):
+                unplaced_transfers.append(transfer)
                 continue
             offset = correction(node or next(iter(nodes), None))
             start = (int(transfer["send_start_ns"]) + offset - origin) / 1000
@@ -539,7 +557,9 @@ def make_report(path, *, analysis=None):
     opportunities.extend(rank_skew(traces))
     timing = {}
     for name, n in nodes.items():
-        start = n["clock"]
+        start = n.get("clock")
+        if not start or "uncertainty_ns" not in start:
+            continue
         end = n.get("end_clock") or start
         timing[name] = {
             "max_error_us": (
@@ -550,9 +570,12 @@ def make_report(path, *, analysis=None):
         }
     return dict(
         schema="serveutil.report/1",
+        time_origin_unix_ns=str(origin) if common_clock else None,
+        communication_links=communication_links(traces),
         timing=timing,
         calibration_error=manifest.get("calibration_error"),
         transfers=transfers,
+        unplaced_transfers=unplaced_transfers,
         kv_metrics=[
             {
                 **row,
@@ -577,7 +600,7 @@ def make_report(path, *, analysis=None):
         alignment_note=None
         if common_clock
         else (
-            "A trace has no Kineto baseTimeNanoseconds. Each rank uses its first event as zero. "
+            "A trace or node lacks an absolute clock anchor. Each rank uses its first event as zero. "
             "Absolute-time hardware samples and KV handoffs cannot be placed on these axes."
         ),
         traces=traces,
@@ -615,22 +638,52 @@ def _portable_data(path):
 
 
 def render(path=None, destination=None, *, analysis=None):
+    from . import originals
+
     data = None
+    raw_sources = []
     if path is not None:
         path = Path(path)
-        data = _portable_data(path)
-        if data is None and path.suffix.lower() != ".html":
+        if path.is_dir():
             data = make_report(path, analysis=analysis)
+            raw_sources = originals.attachments(path, data)
+        elif path.suffix.lower() == ".html":
+            html = path.read_text(encoding="utf-8", errors="replace")
+            if re.search(
+                r'<script\s+id="capture-data"\s+type="application/json">', html, re.I
+            ):
+                data = _portable_data(path)
+                raw_sources = originals.from_html(html)
+            else:
+                raw_sources = originals.attachments(path)
+        else:
+            # Binary, system, and non-Kineto JSON formats go straight to the
+            # upstream engine. Only the inference summary needs Chrome events.
+            opener = gzip.open if path.suffix.lower() == ".gz" else open
+            with opener(path, "rb") as f:
+                prefix = f.read(1024).lstrip()
+            portable = False
+            if prefix.startswith(b"{"):
+                data = _portable_data(path)
+                portable = data is not None
+                if data is None:
+                    try:
+                        data = make_report(path, analysis=analysis)
+                    except ValueError as exc:
+                        if "expected a PyTorch Chrome trace object" not in str(exc):
+                            raise
+            if not portable:
+                raw_sources = originals.attachments(path)
     if (
         destination is not None
         and path
         and Path(destination).resolve() == Path(path).resolve()
     ):
         raise ValueError("choose an HTML output separate from the input")
-    return render_data(data, destination)
+    return render_data(data, destination, raw_sources=raw_sources)
 
 
-def render_data(data, destination=None):
+def render_data(data, destination=None, *, raw_sources=()):
     root = files("serveutil").joinpath("ui")
     template = root.joinpath("index.html").read_text(encoding="utf-8")
     icon = base64.b64encode(root.joinpath("icon.png").read_bytes()).decode("ascii")
@@ -648,6 +701,13 @@ def render_data(data, destination=None):
     template = template.replace(
         "/* APPLICATION */", root.joinpath("app.js").read_text(encoding="utf-8")
     )
+    template = template.replace(
+        "/* FULL TRACE */", root.joinpath("raw.js").read_text(encoding="utf-8")
+    )
+    raw_json = json.dumps(
+        raw_sources, ensure_ascii=False, separators=(",", ":")
+    ).replace("<", "\\u003c")
+    template = template.replace("<!-- ORIGINALS -->", raw_json)
     payload = json.dumps(
         data, ensure_ascii=False, separators=(",", ":"), allow_nan=False
     ).replace("<", "\\u003c")

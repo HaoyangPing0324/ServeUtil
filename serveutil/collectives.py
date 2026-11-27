@@ -154,6 +154,9 @@ class CollectiveRecorder:
             group["description"] = str(description)
         seq = _integer(args.get("Seq"))
         details = event["collective"] = {"op": op, "group": group, "seq": seq}
+        comms_id = _integer(args.get("Comms Id"))
+        if comms_id is not None and comms_id != 0:
+            details["comms_id"] = str(comms_id)
         # Generic kernels carry no reduction in their symbol. Only accept an
         # explicit specialization for the operation recorded by Kineto.
         symbol = event.get("original", event.get("name", ""))

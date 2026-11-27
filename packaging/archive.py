@@ -16,6 +16,11 @@ else:
     folder = root / "ServeUtil"
     program = folder / ("ServeUtil.exe" if os.name == "nt" else "ServeUtil")
 subprocess.run([str(program), "--verify", str(report)], check=True, timeout=120)
+subprocess.run(
+    [str(program), "--verify", str(report.with_name("decode.synthetic.json"))],
+    check=True,
+    timeout=120,
+)
 name = f"ServeUtil-{platform.system()}-{platform.machine()}"
 shutil.make_archive(
     str(root / name), "zip" if os.name == "nt" else "gztar", root, folder.name

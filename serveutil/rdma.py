@@ -1,6 +1,7 @@
 """Run perftest RDMA WRITE between host or GPU buffers on a named HCA port."""
 
 import ipaddress
+import json
 import math
 import shutil
 import socket
@@ -9,10 +10,28 @@ import time
 from pathlib import Path
 
 
-def _ready(port, proc):
+def _ready(port, proc, rdma_cm=False):
     """Observe the control socket without connecting a competing handshake."""
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline and proc.poll() is None:
+        if rdma_cm:
+            # RDMA CM listeners do not appear in /proc/net/tcp on eRDMA.
+            observed = subprocess.run(
+                ["rdma", "-j", "resource", "show", "cm_id"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=2,
+            )
+            for item in json.loads(observed.stdout):
+                if (
+                    item.get("state") == "LISTEN"
+                    and item.get("pid") == proc.pid
+                    and item.get("src-addr", "").endswith(f":{port}")
+                ):
+                    return
+            time.sleep(0.05)
+            continue
         for path in (Path("/proc/net/tcp"), Path("/proc/net/tcp6")):
             if not path.exists():
                 continue
@@ -33,6 +52,9 @@ def transfer(msg, send, sampler):
     hca, sep, port_num = msg["rdma_port"].partition("/")
     if not hca or not sep or not port_num.isdecimal() or int(port_num) <= 0:
         raise ValueError("Use an RDMA port in the form device/port")
+    rdma_cm = (
+        Path("/sys/class/infiniband") / hca / "device/driver"
+    ).resolve().name == "erdma"
     seconds = int(msg["seconds"])
     if not 4 <= seconds <= 60:
         raise ValueError("RDMA WRITE reference duration must be 4–60 seconds")
@@ -66,6 +88,8 @@ def transfer(msg, send, sampler):
         str(address),
     ]
     cuda = msg.get("cuda_device")
+    if rdma_cm:
+        args += ["--rdma_cm"]
     if cuda is not None:
         if type(cuda) is not int or cuda < 0:
             raise ValueError("cuda_device must be a nonnegative CUDA ordinal")
@@ -77,7 +101,7 @@ def transfer(msg, send, sampler):
     )
     try:
         if server:
-            _ready(port, proc)
+            _ready(port, proc, rdma_cm)
             send({"port": port})
         start = sampler.now()
         stdout, stderr = proc.communicate(timeout=seconds + 20)
@@ -101,7 +125,14 @@ def transfer(msg, send, sampler):
                 break
         if not server and measured is None:
             raise ValueError("ib_write_bw returned no positive client bandwidth")
-        return start, end, {"payload_GBps": measured}
+        return (
+            start,
+            end,
+            {
+                "payload_GBps": measured,
+                "connection_manager": "rdma_cm" if rdma_cm else "socket",
+            },
+        )
     finally:
         if proc.poll() is None:
             proc.kill()

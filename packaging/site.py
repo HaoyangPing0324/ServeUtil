@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from serveutil.report import render
+from serveutil.native_view import unpack_perfetto
 
 EXAMPLES = [
     ("h20-decode.html", "Qwen3 decode on H20"),
@@ -18,7 +19,16 @@ def build_site(destination):
     for name, _ in EXAMPLES:
         if source.resolve() != destination.resolve():
             shutil.copyfile(source / name, destination / name)
-    links = "".join(f'<a href="{name}">{label}</a>' for name, label in EXAMPLES)
+    render(source / "decode.synthetic.json", destination / "native-example.html")
+    links = "".join(
+        f'<a href="{name}">{label}</a>'
+        for name, label in [
+            *EXAMPLES,
+            ("native-example.html", "Full trace example (synthetic)"),
+        ]
+    )
+    if source.resolve() != destination.resolve():
+        unpack_perfetto(destination / "perfetto")
     index = destination / "index.html"
     index.write_text(render().replace("<!-- EXAMPLES -->", links), encoding="utf-8")
     return index

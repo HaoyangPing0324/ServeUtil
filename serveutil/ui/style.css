@@ -324,7 +324,7 @@ pre {
 
 .welcome { display: none; }
 .empty main > :not(.welcome) { display: none; }
-.empty header .button { visibility: hidden; }
+header button, header .button {color:#123e3e}
 .empty .welcome { display: grid; justify-items: start; align-content: center; min-height: 56vh; gap: 12px; max-width: 620px; margin: 4vh auto; padding: 27px; }
 .welcome h1 { font-size: clamp(32px, 5vw, 52px); }
 .welcome p { line-height: 1.55; font-size: 16px; }
@@ -332,3 +332,25 @@ pre {
 .welcome a { color: #145e68; margin-right: 18px; }
 .welcome small { color: #546975; }
 body.dragging main { outline: 2px dashed #0a817e; outline-offset: -6px; }
+
+.full-trace main,.full-trace>header {display:none}
+#nativePanel:not([hidden]) {display:flex;flex-direction:column;height:100vh;background:#fff}
+.nativeTools {display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;padding:.65rem 1rem;border-bottom:1px solid #dce4e9}
+#nativeSources {max-width:min(48vw,42rem)}
+#nativeStatus {font-size:.88rem}
+#nativeFrame {flex:1;min-height:0}
+#nativeFrame iframe {width:100%;height:100%;border:0}
+
+#linksSection {margin-top:14px;padding:16px;background:#fff;border:1px solid #cdd9dd;border-radius:7px}
+#linksSection .links-head,#linkList,.link-endpoints {display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+#linksSection .links-head {justify-content:space-between}
+#linksCount,#linkList label,#linkInspector p,.link-endpoints small {font-size:12px;color:#526974}
+#linkList {margin-top:12px}
+#linkList select {max-width:100%}
+#linkList input {width:5.5rem;padding:5px;border:1px solid #c2d1d6;border-radius:4px}
+#linkInspector {margin-top:12px;background:#f6f7fa;border-left:3px solid #7857a7;padding:12px 14px}
+#linkInspector:empty {display:none}
+.link-endpoints {margin-top:10px;gap:7px}
+.link-endpoints button {display:grid;gap:4px;text-align:left}
+.link-connector {color:#7857a7;font-weight:700}
+#linkInspector .link-focus {margin-top:10px;font-size:12px}

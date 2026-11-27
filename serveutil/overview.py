@@ -81,6 +81,7 @@ def trace_items(stream, header):
                 "displayTimeUnit",
                 "trace_id",
                 "distributedInfo.nccl_version",
+                "distributedInfo.rank",
             } and kind in {"number", "string"}:
                 header[prefix] = value
             yield prefix, kind, value
@@ -128,9 +129,13 @@ def export(source, destination):
                 counts["kept"] += 1
                 counts[event.get("ph")] += 1
             out.write("\n]")
-            nccl_version = header.pop("distributedInfo.nccl_version", None)
-            if nccl_version is not None:
-                header["distributedInfo"] = {"nccl_version": nccl_version}
+            distributed = {}
+            for field in ("nccl_version", "rank"):
+                value = header.pop("distributedInfo." + field, None)
+                if value is not None:
+                    distributed[field] = value
+            if distributed:
+                header["distributedInfo"] = distributed
             for key, value in header.items():
                 out.write(
                     "," + json.dumps(key) + ":" + json.dumps(value, default=float)
