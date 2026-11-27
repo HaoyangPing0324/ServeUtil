@@ -71,7 +71,11 @@ with serveutil.observe("runs") as run:
 
 `on_trace_ready` 抛出的异常会传回应用。打开采集目录可以查看已完成的窗口和错误原因。应用若已接管异步 Cuspy 导出，仍可在异常后通过原生 observer 完成写入。
 
-在回调中或采集结束后调用 `p.export_stacks(...)` 或 `p.export_memory_timeline(...)`，PyTorch 会将文件写到指定位置。ServeUtil 同时在 `artifacts/` 保存字节完全一致的副本。`capture.json` 的 `profiler_artifacts` 记录副本路径、导出方法和从 0 开始的采集周期编号。`ExecutionTraceObserver` 的执行图可以跨越多个周期，PyTorch 在结束 observer 时将完整图写入 `register_callback` 指定的位置。
+在回调中或采集结束后调用 `p.export_stacks(...)` 或 `p.export_memory_timeline(...)`，PyTorch 会将文件写到指定位置。ServeUtil 同时在 `artifacts/` 保存字节完全一致的副本。`capture.json` 的 `profiler_artifacts` 记录副本路径、导出方法和从 0 开始的采集周期编号。
+
+使用 PyTorch 的 `ExecutionTraceObserver` 时，可以在 ServeUtil Viewer 的 **下载 profiler 导出文件** 中取回执行图。一张图可以覆盖多个采集窗口。如果 observer 还保存了输入张量或生成的内核，菜单会提供包含执行图和资源目录的 ZIP，解压即可保留原来的相对路径。PyTorch 退出录制上下文时写完这些文件。手动调用 `stop()` 时，在 `observer.unregister_callback()` 返回后即可取回。
+
+需要原生 observer 导出整数张量时，请用 `.json` 作为执行图文件名后缀。在 PyTorch 2.15 的 `aten::embedding` 实测中，原生 observer 将输入索引写到了普通 JSON 图的资源目录。使用 `.json.gz` 时生成了图，但资源目录为空。
 
 | 入口或选项 | 结果 |
 | --- | --- |

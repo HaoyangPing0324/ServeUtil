@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 import serveutil
@@ -133,6 +134,9 @@ class NativeProfilerTests(unittest.TestCase):
             self.assertEqual((root / "native-stacks.txt").read_bytes(), (root / "stacks.txt").read_bytes())
             for i, directory in enumerate(dirs):
                 manifest = json.loads((directory / "capture.json").read_text())
+                graph, = (item for item in manifest["profiler_artifacts"] if item["kind"] == "execution_trace")
+                self.assertIsNone(graph["cycle"])
+                self.assertEqual((directory / graph["file"]).read_bytes(), (root / "execution.json").read_bytes())
                 callback_stack, = (
                     item for item in manifest["profiler_artifacts"]
                     if item["cycle"] == (0 if instrumented else i)
@@ -614,6 +618,40 @@ class NativeProfilerTests(unittest.TestCase):
             self.assertEqual(m["traces"], [])
             self.assertEqual(m["status"], "complete")
 
+    def test_execution_resources_follow_native_unregister(self):
+        for handler_only in (False, True):
+            with self.subTest(handler_only=handler_only), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                graph = root / "session.json.gz"
+                observer = torch.profiler.ExecutionTraceObserver().register_callback(str(graph))
+                observer.set_extra_resource_collection(True)
+                resource = Path(observer.get_resources_dir()) / "kernels" / "index.bin"
+                resource.parent.mkdir()
+                resource.write_bytes(bytes(range(256)))
+                options = dict(activities=[torch.profiler.ProfilerActivity.CPU], execution_trace_observer=observer)
+                if handler_only:
+                    p = torch.profiler.profile(**options, on_trace_ready=serveutil.trace_handler(root / "runs"))
+                else:
+                    p = serveutil.profile(root / "runs", devices=[], calibration=False, **options)
+                p.start()
+                self.workload(0, "cpu")
+                p.stop()
+                self.assertTrue(observer.is_registered)
+                manifest = p.serveutil_directory / "capture.json"
+                self.assertFalse(json.loads(manifest.read_text()).get("profiler_artifacts"))
+                observer.unregister_callback()
+                observer.cleanup()
+                self.assertNotIn("unregister_callback", vars(observer))
+                items = json.loads(manifest.read_text())["profiler_artifacts"]
+                self.assertEqual(len(items), 2)
+                plain, bundle = [p.serveutil_directory / item["file"] for item in items]
+                original = graph.read_bytes()
+                self.assertTrue(json.loads(gzip.decompress(original))["nodes"])
+                self.assertEqual(plain.read_bytes(), original)
+                with zipfile.ZipFile(bundle) as archive:
+                    self.assertEqual(archive.read(graph.name), original)
+                    self.assertEqual(archive.read(resource.relative_to(root).as_posix()), resource.read_bytes())
+
     def test_callback_error_ends_native_cycle_once(self):
         def fail(_):
             raise RuntimeError("callback failed")
@@ -653,6 +691,8 @@ class NativeProfilerTests(unittest.TestCase):
                     (p.serveutil_directory / "capture.json").read_text(encoding="utf-8")
                 )
                 self.assertEqual(manifest["status"], "failed")
+                graph, = (item for item in manifest["profiler_artifacts"] if item["kind"] == "execution_trace")
+                self.assertEqual((p.serveutil_directory / graph["file"]).read_bytes(), (Path(tmp) / "graph.json").read_bytes())
                 trace, = manifest["traces"]
                 with gzip.open(p.serveutil_directory / trace["file"], "rt") as source:
                     self.assertIn("aten::ones", {e.get("name") for e in json.load(source)["traceEvents"]})

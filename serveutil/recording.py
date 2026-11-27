@@ -3,6 +3,7 @@
 import gzip
 import inspect
 import json
+import logging
 import os
 import re
 import shutil
@@ -10,6 +11,7 @@ import stat
 import tempfile
 import threading
 import weakref
+import zipfile
 import zlib
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -31,6 +33,83 @@ def _failed_callback(profiler):
 def _result(profiler):
     backend = getattr(profiler, "profiler", None)
     return getattr(backend, "kineto_results", None) or backend
+
+
+def _graph_warning(capture, path, error):
+    capture.warn_export(path, error)
+    try:
+        capture.save()
+    except OSError:
+        logging.getLogger(__name__).warning("Could not record execution trace export error for %s: %s", path, error)
+
+
+def _archive_execution_trace(observer, captures):
+    captures = [capture for capture in captures if capture.path.is_dir()]
+    if not captures:
+        return
+    graph = Path(observer.get_output_file_path())
+
+    def save(kind, path):
+        for capture in captures:
+            try:
+                capture.archive_profiler_artifact(None, kind, path)
+            except OSError as exc:
+                _graph_warning(capture, path, exc)
+
+    save("execution_trace", graph)
+    get_resources = getattr(observer, "get_resources_dir", None)
+    resource_path = get_resources() if get_resources else None
+    if not resource_path:
+        return
+    resources = Path(resource_path)
+    capture_dirs = {capture.path.resolve() for capture in captures}
+    members = [path for path in sorted(resources.rglob("*"))
+               if not path.is_symlink() and path.is_file() and not capture_dirs.intersection(path.resolve().parents)]
+    if not members:
+        return
+    # The graph and its relative resource paths belong to one native session,
+    # including when instrument() emits a separate capture for each cycle.
+    with tempfile.TemporaryDirectory(dir=captures[0].path) as tmp:
+        bundle = Path(tmp) / (graph.name + ".bundle.zip")
+        with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_DEFLATED,
+                             compresslevel=1, strict_timestamps=False) as archive:
+            archive.write(graph, graph.name)
+            for member in members:
+                archive.write(member, member.relative_to(resources.parent))
+        save("execution_trace_bundle", bundle)
+
+
+def _watch_execution_trace(observer, capture):
+    from torch import profiler
+
+    if not isinstance(observer, getattr(profiler, "ExecutionTraceObserver", ())) or not observer.is_registered:
+        return
+    native = observer.unregister_callback
+    captures = getattr(native, "_serveutil_captures", None)
+    if captures is not None:
+        if capture not in captures:
+            captures.append(capture)
+        return
+    captures = [capture]
+    previous = vars(observer).get("unregister_callback")
+
+    @wraps(native)
+    def unregister(*args, **kwargs):
+        result = native(*args, **kwargs)
+        if not observer.is_registered and vars(observer).get("unregister_callback") is unregister:
+            if previous is None:
+                del observer.unregister_callback
+            else:
+                observer.unregister_callback = previous
+            try:
+                _archive_execution_trace(observer, captures)
+            except Exception as exc:
+                for owner in captures:
+                    _graph_warning(owner, Path("execution_trace"), exc)
+        return result
+
+    unregister._serveutil_captures = captures
+    observer.unregister_callback = unregister
 
 
 def _watch_profiler_artifacts(profiler):
@@ -360,6 +439,7 @@ def trace_handler(output="serveutil-runs", *, on_trace_ready=None):
     def save(profiler):
         capture = Capture(output, "torch")
         try:
+            _watch_execution_trace(profiler.execution_trace_observer, capture)
             _complete_cycle(capture, profiler, on_trace_ready)
             capture.finish()
         except BaseException as exc:
@@ -616,6 +696,7 @@ def _record_profile(
                 interval_ms=interval_ms,
                 include_hbm=_independent_hbm(torch, profiler_kwargs),
             ).start()
+            _watch_execution_trace(profiler.execution_trace_observer, capture)
             return operation()
         except BaseException as exc:
             if sampler is not None:
@@ -701,6 +782,7 @@ class _CycleObserver:
                 include_hbm=self.include_hbm,
             ).start()
             if self.observer is not None:
+                _watch_execution_trace(self.observer, self.capture)
                 self.observer.start()
         except BaseException as exc:
             self._stop_sampler()

@@ -39,7 +39,11 @@ Pass an existing registered `execution_trace_observer` in the same options. PyTo
 
 If `on_trace_ready` raises, the exception propagates to the application. Open the capture folder to inspect completed windows and the recorded error. A caller that took ownership of an asynchronous Cuspy export can finish it through the same native observer after the exception.
 
-Call `prof.export_stacks(...)` or `prof.export_memory_timeline(...)` in the ready callback or after recording. PyTorch writes the requested file. ServeUtil saves a byte-for-byte copy under `artifacts/` and lists its path, export method and zero-based recording cycle in `capture.json` under `profiler_artifacts`. An `ExecutionTraceObserver` writes its graph to the path supplied to `register_callback` when PyTorch finalizes the observer. One graph can cover multiple recording cycles.
+Call `prof.export_stacks(...)` or `prof.export_memory_timeline(...)` in the ready callback or after recording. PyTorch writes the requested file. ServeUtil saves a byte-for-byte copy under `artifacts/` and lists its path, export method and zero-based recording cycle in `capture.json` under `profiler_artifacts`.
+
+With a PyTorch `ExecutionTraceObserver`, open **Download profiler output** in ServeUtil Viewer to save the execution graph. One graph can span several recording windows. If the observer collected resources such as input tensors or generated kernels, the menu also offers a ZIP containing the graph and its resource directory. Extract the ZIP to preserve their relative paths. The files become available when PyTorch finalizes the observer on context exit, or when you call `observer.unregister_callback()` after a manual `stop()`.
+
+For native integer tensor dumps, use a graph filename ending in `.json`. In a PyTorch 2.15 test using `aten::embedding`, the native observer wrote the input indices beside the plain JSON graph. Its `.json.gz` export produced the graph with an empty resource directory.
 
 ```python
 with serveutil.observe("runs") as run:
