@@ -5,6 +5,7 @@ import inspect
 import json
 import os
 import shutil
+import stat
 import tempfile
 import threading
 import weakref
@@ -27,7 +28,44 @@ def _failed_callback(profiler, capture, exc):
 
 
 def _result(profiler):
-    return getattr(profiler.profiler, "kineto_results", None) or profiler.profiler
+    backend = getattr(profiler, "profiler", None)
+    return getattr(backend, "kineto_results", None) or backend
+
+
+def _watch_profiler_artifacts(profiler):
+    def file_version(path):
+        try:
+            info = path.stat()
+        except (OSError, ValueError):
+            return None
+        if stat.S_ISREG(info.st_mode):
+            return info.st_ino, info.st_size, info.st_ctime_ns, info.st_mtime_ns
+        return None
+
+    def wrap(writer, kind):
+        @wraps(writer)
+        def export(*args, **kwargs):
+            path = args[0] if args else kwargs.get("path")
+            path = Path(os.fsdecode(path)) if isinstance(path, (str, bytes, os.PathLike)) else None
+            before = file_version(path) if path is not None else None
+            value = writer(*args, **kwargs)
+            window = getattr(profiler, "_serveutil_artifact_window", None)
+            if window and (result := window[0]()) is not None and result is _result(profiler):
+                _, capture, cycle = window
+                if path is not None and file_version(path) not in (None, before):
+                    try:
+                        capture.archive_profiler_artifact(cycle, kind, path)
+                    except OSError as exc:
+                        capture.warn_export(path, exc)
+            return value
+
+        export._serveutil_artifact_writer = True
+        return export
+
+    for name in ("export_stacks", "export_memory_timeline"):
+        writer = getattr(profiler, name, None)
+        if writer is not None and not getattr(writer, "_serveutil_artifact_writer", False):
+            setattr(profiler, name, wrap(writer, name))
 
 
 @contextmanager
@@ -219,6 +257,12 @@ def _export_saved(profiler, *args, **kwargs):
 
 
 def _complete_cycle(capture, profiler, callback):
+    _watch_profiler_artifacts(profiler)
+    result = _result(profiler)
+    if result is not None:
+        profiler._serveutil_artifact_window = (
+            weakref.ref(result), capture, len(capture.manifest["traces"])
+        )
     if not callback:
         return _export_cycle(capture, profiler)
     if not getattr(profiler, "_use_cuspy", False):
@@ -481,6 +525,7 @@ def _record_profile(
     capture = sampler = None
 
     profiler = create_profiler(**profiler_kwargs)
+    _watch_profiler_artifacts(profiler)
 
     def save_cycle():
         try:
@@ -536,7 +581,7 @@ def _record_profile(
                 capture.manifest["telemetry"] = active.stop()
             if operation is native_stop_trace:
                 # PyTorch's low-level pair has no scheduler or ready callback.
-                _export_cycle(capture, profiler)
+                _complete_cycle(capture, profiler, None)
             if capture.manifest["status"] == "recording":
                 capture.finish()
             else:

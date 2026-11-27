@@ -29,6 +29,7 @@ class NativeProfilerTests(unittest.TestCase):
             root = Path(tmp)
             dirs = []
             data = []
+            stacks_by_window = []
             observer = torch.profiler.ExecutionTraceObserver().register_callback(
                 str(root / "execution.json")
             )
@@ -47,6 +48,10 @@ class NativeProfilerTests(unittest.TestCase):
                 p.export_chrome_trace(str(dest))
                 data.append(dest.read_bytes())
                 tb(p)
+                stacks = root / "callback-stacks.txt"
+                p.export_stacks(str(stacks))
+                stacks_by_window.append(stacks.read_bytes())
+                stacks.unlink()
 
             activities = [torch.profiler.ProfilerActivity.CPU]
             if device == "cuda":
@@ -124,12 +129,31 @@ class NativeProfilerTests(unittest.TestCase):
                 )
                 self.assertEqual(standard.read_bytes(), data[-1])
             p.export_stacks(str(root / "stacks.txt"), "self_cpu_time_total")
-            self.assertTrue((root / "stacks.txt").is_file())
+            type(p).export_stacks(p, str(root / "native-stacks.txt"), "self_cpu_time_total")
+            self.assertEqual((root / "native-stacks.txt").read_bytes(), (root / "stacks.txt").read_bytes())
+            for i, directory in enumerate(dirs):
+                manifest = json.loads((directory / "capture.json").read_text())
+                callback_stack, = (
+                    item for item in manifest["profiler_artifacts"]
+                    if item["cycle"] == (0 if instrumented else i)
+                    and Path(item["file"]).name == "callback-stacks.txt"
+                )
+                self.assertEqual(callback_stack["kind"], "export_stacks")
+                self.assertEqual((directory / callback_stack["file"]).read_bytes(), stacks_by_window[i])
             # Recent versions deprecate this API; the native dependency and output format are preserved.
             if hasattr(p, "export_memory_timeline"):
                 p.export_memory_timeline(str(root / "memory.json.gz"), device=device)
                 self.assertTrue(
                     json.loads(gzip.decompress((root / "memory.json.gz").read_bytes()))
+                )
+                artifact = json.loads((dirs[-1] / "capture.json").read_text())["profiler_artifacts"][-1]
+                self.assertEqual(artifact["kind"], "export_memory_timeline")
+                self.assertEqual((dirs[-1] / artifact["file"]).read_bytes(), (root / "memory.json.gz").read_bytes())
+                native_memory = root / "native-memory.json.gz"
+                type(p).export_memory_timeline(p, str(native_memory), device=device)
+                self.assertEqual(
+                    gzip.decompress(native_memory.read_bytes()),
+                    gzip.decompress((root / "memory.json.gz").read_bytes()),
                 )
             for i, raw in enumerate(data):
                 trace = json.loads(raw)

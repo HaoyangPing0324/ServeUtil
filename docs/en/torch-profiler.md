@@ -37,6 +37,8 @@ Pass an existing registered `execution_trace_observer` in the same options. PyTo
 
 ## Preserve caller-managed exports
 
+Call `prof.export_stacks(...)` or `prof.export_memory_timeline(...)` in the ready callback or after recording. PyTorch writes the requested file. ServeUtil saves a byte-for-byte copy under `artifacts/` and lists its path, export method and zero-based recording cycle in `capture.json` under `profiler_artifacts`. An `ExecutionTraceObserver` writes its graph to the path supplied to `register_callback` when PyTorch finalizes the observer. One graph can cover multiple recording cycles.
+
 ```python
 with serveutil.observe("runs") as run:
     handler = torch.profiler.tensorboard_trace_handler(str(run / "traces"), use_gzip=True)

@@ -35,6 +35,17 @@ def open_text(path):
     )
 
 
+def _copy_export(source, saved):
+    saved.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=saved.parent, delete=False) as temp:
+        staging = Path(temp.name)
+    try:
+        shutil.copyfile(source, staging)
+        staging.replace(saved)
+    finally:
+        staging.unlink(missing_ok=True)
+
+
 class Capture:
     def __init__(self, output, engine):
         parent = Path(output)
@@ -80,17 +91,20 @@ class Capture:
             primary = self.path / entry["file"]
             exports = entry.get("native_exports", [])
             directory = primary.parent / (primary.name + ".exports")
-            directory.mkdir(exist_ok=True)
             suffix = ".json.gz" if str(source).endswith(".gz") else ".json"
             saved = directory / f"export-{len(exports) + 1}{suffix}"
-            with tempfile.NamedTemporaryFile(dir=directory, delete=False) as temp:
-                staging = Path(temp.name)
-            try:
-                shutil.copyfile(source, staging)
-                staging.replace(saved)
-            finally:
-                staging.unlink(missing_ok=True)
+            _copy_export(source, saved)
             entry["native_exports"] = [*exports, str(saved.relative_to(self.path))]
+            self.save()
+
+    def archive_profiler_artifact(self, cycle, kind, source):
+        """Preserve a caller-requested native export without treating it as a trace."""
+        with self._lock:
+            artifacts = self.manifest.setdefault("profiler_artifacts", [])
+            directory = self.path / "artifacts" / f"{len(artifacts) + 1}"
+            saved = directory / source.name
+            _copy_export(source, saved)
+            artifacts.append({"cycle": cycle, "kind": kind, "file": str(saved.relative_to(self.path))})
             self.save()
 
     def complete_export(self, entry, path, binary, error=None):
