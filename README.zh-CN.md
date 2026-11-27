@@ -25,6 +25,8 @@ ServeUtil 面向 PyTorch、vLLM 和 SGLang。打开一次 Decode，先看各个 
 
 ## 安装
 
+采集模型请在推理环境安装下方的 Python 包。只看报告可直接打开[网页版查看器](https://haoyangping0324.github.io/ServeUtil/viewer.html?lang=zh)，或从 [GitHub Release](https://github.com/HaoyangPing0324/ServeUtil/releases/latest) 下载独立桌面应用。同一版本的依赖范围、已测试的 PyTorch、CUDA、vLLM 和 SGLang 组合见[安装与兼容性](https://haoyangping0324.github.io/ServeUtil/zh/downloads.html)。
+
 使用 Python 3.10 或更高版本，从 PyPI 安装 ServeUtil。
 
 ```bash

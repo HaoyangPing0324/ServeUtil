@@ -25,6 +25,8 @@ On two H20 hosts, the sending port averaged 58.5 MB/s over a 3.05-second SGLang 
 
 ## Installation
 
+To record a model, install the Python package in the inference environment. To inspect an existing trace, open the [web viewer](https://haoyangping0324.github.io/ServeUtil/viewer.html) or download the standalone desktop app from [GitHub Releases](https://github.com/HaoyangPing0324/ServeUtil/releases/latest). See the [installation and compatibility guide](https://haoyangping0324.github.io/ServeUtil/downloads.html) for package requirements and tested PyTorch, CUDA, vLLM and SGLang configurations.
+
 Install ServeUtil from PyPI with Python 3.10 or later.
 
 ```bash
