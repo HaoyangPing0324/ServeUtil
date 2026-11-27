@@ -765,6 +765,7 @@ def render_data(data, destination=None, *, raw_sources=()):
         "/* FULL TRACE */", root.joinpath("raw.js").read_text(encoding="utf-8")
     )
     template = template.replace("/* TRANSLATIONS */", root.joinpath("language.js").read_text(encoding="utf-8"))
+    template = template.replace("/* NAVIGATION */", root.joinpath("navigation.js").read_text(encoding="utf-8"))
     raw_json = json.dumps(
         raw_sources, ensure_ascii=False, separators=(",", ":")
     ).replace("<", "\\u003c")

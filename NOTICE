@@ -8,3 +8,7 @@ The full trace workspace redistributes the unmodified Perfetto UI build
 v59.1-491832c0d from https://ui.perfetto.dev/, including its Trace Processor
 WebAssembly engines. The upstream distribution and license terms are in
 serveutil/vendor/. packaging/vendor_perfetto.py verifies the upstream assets.
+
+The inference timeline adapts wheel zoom and drag pan from Perfetto v59.1
+ui/src/core_plugins/dev.perfetto.Timeline/timeline_interactions.ts.
+Copyright (C) 2024 The Android Open Source Project. Apache License, Version 2.0.

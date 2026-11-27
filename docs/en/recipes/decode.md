@@ -8,7 +8,7 @@ Start in **Stages & resources** and choose a Decode step under **Interval**. Fol
 
 ## Read the evidence
 
-A gap means that no recorded kernel, copy or memset occupied that device interval across the observed streams. Inspect the host launches and synchronization immediately before the next kernel. A missing upstream event can also leave a gap. In a complete recording, **Full Perfetto** lets you follow the CPU-to-GPU flow; this public excerpt contains only the selected events and hardware samples.
+A gap means that no recorded kernel, copy or memset occupied that device interval across the observed streams. Inspect the host launches and synchronization immediately before the next kernel. A missing upstream event can also leave a gap. In a complete recording, **Original tracks** lets you follow the CPU-to-GPU flow; this public excerpt contains only the selected events and hardware samples.
 
 ## Compare bandwidth and compute
 

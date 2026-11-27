@@ -44,7 +44,7 @@ with serveutil.observe("runs") as run:
         prof.wait_for_exports()
 ```
 
-Write native outputs to the capture's `traces/` directory and finish deferred writes inside the context. This leaves the application's profiler, callbacks and export methods under its control. Use `include_hbm=False` with a native device profiler that needs exclusive CUPTI access. Binary traces open in Full Perfetto.
+Write native outputs to the capture's `traces/` directory and finish deferred writes inside the context. This leaves the application's profiler, callbacks and export methods under its control. Use `include_hbm=False` with a native device profiler that needs exclusive CUPTI access. Binary traces open in Original tracks.
 
 ## Options and device availability
 

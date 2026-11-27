@@ -359,19 +359,64 @@ body.dragging main { outline: 2px dashed #0a817e; outline-offset: -6px; }
 .link-connector {color:#7857a7;font-weight:700}
 #linkInspector .link-focus {margin-top:10px;font-size:12px}
 header .projectDocs{color:white;text-underline-offset:.2em}header #viewerLanguage{min-width:4.5em}
+
+#inspector {
+  position: fixed; z-index: 4; inset: auto 0 0; padding: 8px clamp(16px,4vw,76px) 12px;
+  background: white; color: #20262c; border-top: 2px solid #446890; box-shadow: 0 -2px 8px #18283815;
+}
+.drawerHead {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px}
+.drawerHead button,#keyHelp {padding:1px 7px;font-size:14px;border:1px solid #ccd2d8;color:#344457}
+#inspector #details {max-height:min(20vh,175px);overflow:auto;line-height:1.5}
+#inspector dl {grid-template-columns:minmax(90px,max-content) minmax(0,1fr);margin:4px 0}
+#inspector dd {white-space:pre-line}
+body.inspecting {padding-bottom:min(28vh,245px)}
+.bottom {grid-template-columns:1fr}
+canvas:focus-visible {outline:2px solid #547eb0;outline-offset:-2px}
+#shortcutDialog {border:1px solid #bac2cc;border-radius:4px;padding:18px 22px;max-width:94vw}
+#shortcutDialog::backdrop {background:#1b263755}
+#shortcutDialog dt {font-family:monospace;color:#293b51}
+.foot {justify-content:flex-start;flex-wrap:wrap;padding:6px 12px}
+.foot #range {margin-right:auto}
+@media(max-width:760px){header {height:auto;min-height:52px;flex-wrap:wrap;gap:6px;padding-block:8px}header label {margin-left:0} .brand {font-size:17px}.controls select{max-width:50vw}}
+#finder {width:min(460px,94vw);padding:16px;border:1px solid #b9c2cd;border-radius:4px}
+#finder::backdrop {background:#18243255}
+#finderInput {width:100%;padding:8px;border:1px solid #a8b6c5;font:inherit}
+#finderResults {max-height:40vh;overflow:auto;margin-top:7px}
+#finderResults button {display:block;width:100%;text-align:left;padding:6px;border:0;border-radius:0}
+#finderResults button:hover,#finderResults button:focus {background:#edf3fa}
+
+/* Neutral controls keep the track colors available for activity types. */
+:root {background:#fafbfc;color:#232b34}
+header {background:#fff;color:#202833;border-bottom:1px solid #d9dfe5;height:auto;min-height:54px;gap:14px}
+header .muted {color:#596470}
+header .projectDocs {color:#245486}
+header .repoIcon {display:inline-flex;align-items:center}
+header .primary {background:#244c72;color:#fff}
+header label {margin-left:0}
+header #viewerLanguage {margin-left:auto}
+.title {padding:18px 0 14px}
+.title h1 {font-size:clamp(22px,2.7vw,31px);letter-spacing:-.03em}
+.chart,.bottom section,#linksSection,#rates,#kvSection {border-color:#d8dde3;border-radius:4px}
+.metric {background:#fafbfc;border-color:#d8dde3}
+.metric strong {color:#283746}
+body.full-trace #inspector {display:none}
 </style></head>
 <body class="empty"><header><b class="brand"><img src="data:image/png;base64,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" alt="">ServeUtil</b><span class="muted">Inference traces</span><!-- PROJECT GUIDES --><button id="viewerLanguage" type="button" aria-label="Switch language">简体中文</button><label class="button">Open capture folder<input type="file" id="captureFolder" webkitdirectory multiple></label><label class="button primary">Open trace<input id="file" type="file" multiple></label></header>
-<section id="nativePanel" hidden aria-label="Full trace"><div class="nativeTools"><button id="leaveNative">Back to ServeUtil</button><select aria-label="Original trace" id="nativeSources"></select><button id="saveOriginal">Save original</button><span id="rawClockNote"></span><span role="status" id="nativeStatus"></span></div><div id="nativeFrame"></div></section>
-<main><section class="welcome" aria-labelledby="intro"><h1 id="intro">Open a trace</h1><p>Drop a PyTorch trace or a ServeUtil report here to explore the timeline.</p><button type="button" id="choose">Choose a file</button><small>PyTorch trace · ServeUtil report · Perfetto trace</small><nav id="examples" aria-label="Example traces"><!-- EXAMPLES --></nav><p id="importStatus" role="status"></p></section><div class="title"><div><h1 id="title">Inference timeline</h1><p id="summary" aria-live="polite">Open a ServeUtil report to inspect a capture.</p></div><div class="reportActions"><button id="fullTrace" type="button">Full Perfetto</button><button id="png" disabled>Export image</button></div></div>
-<section class="controls" aria-label="View settings"><label>View<select id="view"><option value="overview">Stages &amp; resources</option><option value="stage">Stages only</option><option value="hardware">Hardware counters</option><option value="operator">Operator depth</option><option value="kernel">GPU kernels</option><option value="communication">Communication</option></select></label>
+<section id="nativePanel" hidden aria-label="Full trace"><div class="nativeTools"><button id="leaveNative">Back to timeline</button><select aria-label="Original trace" id="nativeSources"></select><button id="saveOriginal">Save original</button><span id="rawClockNote"></span><span role="status" id="nativeStatus"></span></div><div id="nativeFrame"></div></section>
+<main><section class="welcome" aria-labelledby="intro"><h1 id="intro">Open a trace</h1><p>Drop a PyTorch trace or a ServeUtil report here to explore the timeline.</p><button type="button" id="choose">Choose a file</button><small>PyTorch trace · ServeUtil report · Perfetto trace</small><nav id="examples" aria-label="Example traces"><!-- EXAMPLES --></nav><p id="importStatus" role="status"></p></section><div class="title"><div><h1 id="title">Inference timeline</h1><p id="summary" aria-live="polite">Open a ServeUtil report to inspect a capture.</p></div><div class="reportActions"><button id="png" disabled>Export image</button></div></div>
+<section class="controls" aria-label="View settings"><label>View<select id="view"><option value="overview">Stages &amp; resources</option><option value="stage">Stages only</option><option value="hardware">Hardware counters</option><option value="operator">Operator depth</option><option value="kernel">GPU kernels</option><option value="communication">Communication</option><option id="rawView" value="raw" hidden>Original tracks</option></select></label>
 <label id="depthControl" hidden>Depth<select id="depth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="leaf">Leaf only</option></select></label><label id="nodeControl" hidden>Node<select id="node"><option value="">All nodes</option></select></label><label>Rank<select id="rank"><option value="">All ranks</option></select></label>
 <label>Names<select id="names"><option value="short">Readable</option><option value="original">Original</option></select></label><label>Clock<select id="clock"><option value="capture">Capture elapsed</option></select></label>
 <label>Interval<select id="interval"><option value="">Full capture</option></select></label><div class="zoom"><button id="minus" aria-label="Zoom out">−</button><button id="plus" aria-label="Zoom in">+</button><button id="fit">Fit</button></div></section>
 <section class="chart"><div class="chartHead"><h2>Timeline</h2><div class="legend"><span>Compute</span><span>Communication</span><span>Copy</span><span>Opportunity</span></div></div>
-<div id="scroller"><canvas id="chart" aria-label="Activity timeline, drag horizontally to select an interval" tabindex="0"></canvas></div><div class="foot"><span id="range"></span><span>Drag to zoom · Click to inspect</span></div></section>
+<div id="scroller"><canvas id="chart" aria-label="Activity timeline, drag horizontally to select an interval" tabindex="0"></canvas></div><div class="foot"><span id="range"></span><span>Click to inspect · Drag to select · Shift + drag to pan</span><button id="keyHelp" type="button" aria-label="Keyboard shortcuts">?</button></div></section>
 <section id="linksSection" hidden aria-labelledby="linksHeading"><div class="links-head"><h2 id="linksHeading">Communication paths</h2><small id="linksCount"></small></div><div id="linkList"></div><div id="linkInspector" aria-live="polite"></div></section>
-<section id="kvSection" hidden><h2>KV transfers</h2><div id="kvTable"></div></section><section id="rates" hidden><h2>Resources in selection</h2><div id="metrics"></div></section><div class="bottom"><section><h2>Optimization opportunities <em id="issueCount"></em></h2><div id="issues"></div></section><section><h2>Selection details</h2><div id="details">Select an event, sample or highlighted interval.</div></section></div>
+<section id="kvSection" hidden><h2>KV transfers</h2><div id="kvTable"></div></section><section id="rates" hidden><h2>Resources in selection</h2><div id="metrics"></div></section><div class="bottom"><section><h2>Optimization opportunities <em id="issueCount"></em></h2><div id="issues"></div></section></div>
 <details><summary>Capture and metric availability</summary><pre id="metadata"></pre></details></main>
+<aside id="inspector" hidden aria-label="Selection details"><div class="drawerHead"><h2>Selection details</h2><button id="closeDetails" aria-label="Close details">×</button></div><div id="details" aria-live="polite"></div></aside>
+<dialog id="shortcutDialog"><div class="drawerHead"><h2>Keyboard shortcuts</h2><button id="closeHelp" aria-label="Close">×</button></div><dl>
+<dt>W / S</dt><dd>Zoom in / out</dd><dt>A / D</dt><dd>Pan left / right</dd><dt>Shift + drag</dt><dd>Pan timeline</dd><dt>Ctrl + wheel</dt><dd>Zoom at pointer</dd><dt>Drag</dt><dd>Select time and tracks</dd><dt>F</dt><dd>Fit selection</dd><dt>, / .</dt><dd>Previous / next event</dd><dt>R</dt><dd>Select event interval</dd><dt>Q</dt><dd>Toggle details</dd><dt>Ctrl / ⌘ + P</dt><dd>Find track</dd><dt>Ctrl / ⌘ + Shift + P</dt><dd>Find command</dd><dt>Esc</dt><dd>Clear selection</dd></dl></dialog>
+<dialog id="finder"><div class="drawerHead"><h2 id="finderTitle">Find track</h2><button id="closeFinder" aria-label="Close">×</button></div><input id="finderInput" aria-labelledby="finderTitle" autocomplete="off"><div id="finderResults"></div></dialog>
 <script>// Translate viewer controls while retaining original trace names, payloads and IDs.
 const languageToggle = document.getElementById("viewerLanguage");
 const uiChinese = {
@@ -384,6 +429,12 @@ const uiChinese = {
   "Sum of GPU kernel durations":"GPU kernel 总时长", "Sample window":"采样窗口", "Original sample":"原始采样值", "Baseline utilization":"相对于参考值的利用率",
   "source_node":"发送节点", "destination_node":"接收节点", "logical_bytes":"逻辑字节数", "engine_transfer_ms":"引擎传输时间（ms）",
   "effective_gb_s":"引擎有效带宽（GB/s）", "scheduler_span_GB_s":"调度区间带宽（GB/s）", "receiver_to_decode_us":"接收至 Decode（µs）",
+  "Find track":"查找轨道", "Find command":"查找命令", "No matches":"无匹配结果",
+  "Time selection":"时间选区", "Tracks":"轨道", "Track":"轨道", "Type":"类型", "Start":"起点", "End":"终点",
+  "Keyboard shortcuts":"快捷键", "Zoom in / out":"放大 / 缩小", "Pan left / right":"左移 / 右移", "Pan timeline":"平移时间线",
+  "Zoom at pointer":"围绕指针缩放", "Select time and tracks":"选择时间和轨道", "Fit selection":"放大到选区",
+  "Previous / next event":"上一个 / 下一个事件", "Select event interval":"按事件时长建立选区", "Toggle details":"显示 / 隐藏详情",
+  "Clear selection":"清除选择", "Close details":"关闭详情", "Close":"关闭",
   "Switch language":"切换语言", "Levels 1–2":"第 1–2 层", "All levels":"全部层级", "Full trace":"完整 trace",
   "Independent origins":"独立时间原点", "Rank-local UTC":"rank 本地 UTC", "Payload unavailable":"缺少载荷数据",
   "Inference traces":"推理时间线", "Open capture folder":"打开采集目录", "Open trace":"打开 trace",
@@ -391,14 +442,14 @@ const uiChinese = {
   "Drop a PyTorch trace or a ServeUtil report here to explore the timeline.":"拖入 PyTorch trace 或 ServeUtil 报告，查看时间线。",
   "PyTorch trace · ServeUtil report · Perfetto trace":"PyTorch trace · ServeUtil 报告 · Perfetto trace",
   "Open a ServeUtil report to inspect a capture.":"打开 ServeUtil 报告以查看采集结果。",
-  "Export image":"导出图片", "Full Perfetto":"完整 Perfetto", "Save original":"保存原件", "Back to ServeUtil":"返回 ServeUtil",
+  "Export image":"导出图片", "Original tracks":"原始轨道", "Save original":"保存原件", "Back to timeline":"返回时间线",
   "View":"视图", "Stages & resources":"阶段与资源", "Stages only":"仅阶段", "Hardware counters":"硬件计数器",
   "Operator depth":"算子层级", "GPU kernels":"GPU kernel", "Communication":"通信", "Depth":"层级",
   "Leaf only":"仅叶子", "Node":"节点", "All nodes":"全部节点", "Rank":"Rank", "All ranks":"全部 rank",
   "Names":"名称", "Readable":"简洁名称", "Original":"原始名称", "Clock":"时钟", "Capture elapsed":"采集相对时间",
   "Rank elapsed":"rank 相对时间", "Interval":"区间", "Full capture":"完整采集", "Fit":"完整范围",
   "Timeline":"时间线", "Compute":"计算", "Copy":"拷贝", "Opportunity":"优化机会", "Opportunities":"优化机会",
-  "Drag to zoom · Click to inspect":"拖动缩放 · 点击查看详情", "Communication paths":"通信路径", "KV transfers":"KV 传输",
+  "Click to inspect · Drag to select · Shift + drag to pan":"点击查看详情 · 拖动选区 · Shift 加拖动平移", "Communication paths":"通信路径", "KV transfers":"KV 传输",
   "Resources in selection":"选区资源", "Optimization opportunities":"优化机会", "Selection details":"选区详情",
   "Select an event, sample or highlighted interval.":"选择事件、样本或标记区间。", "Capture and metric availability":"采集详情与可用指标",
   "Repeated GPU gap":"重复 GPU 空档", "Exposed communication":"未与计算重叠的通信", "Sustained bandwidth pressure":"持续带宽压力",
@@ -408,7 +459,7 @@ const uiChinese = {
   "Logical bytes":"逻辑字节数", "Complete operations":"完整操作数", "Method":"计算方法", "Annotation":"标注",
   "Original trace":"原始 trace", "Example traces":"实测与示例", "View settings":"视图设置", "Zoom out":"缩小", "Zoom in":"放大",
   "Activity timeline, drag horizontally to select an interval":"活动时间线，横向拖动以选择区间", "Communication path":"通信路径",
-  "Open this report with serveutil view or the desktop app for Full Perfetto.":"请使用 serveutil view 或桌面客户端打开报告以使用完整 Perfetto。",
+  "Open this report with serveutil view or the desktop app to read original tracks.":"使用 serveutil view 或桌面客户端查看原始轨道。",
   "Qwen3 decode on H20":"H20 上的 Qwen3 Decode", "SGLang AllReduce on two H20s":"双 H20 的 SGLang AllReduce",
   "Full trace example (synthetic)":"完整 trace 示例（合成）", "Project guides":"项目指南", "KV handoff":"KV 交接",
 };
@@ -434,7 +485,7 @@ function translateLabel(node) {
   localizedLabels.set(node, {original, display:value});
 }
 // The renderer owns raw event values, kernel names and native Perfetto content.
-const labelSelector = "header .muted, header label, header a, .welcome h1, .welcome p, .welcome small, #examples a, button:not(#viewerLanguage), .controls label, option, main h1, main h2, .legend span, .foot span, summary, #details dt, #linkList label, #summary, #issues, #linksCount, #nativeStatus, #details";
+const labelSelector = "header .muted, header label, header a, .welcome h1, .welcome p, .welcome small, #examples a, button:not(#viewerLanguage), .controls label, option, main h1, main h2, .legend span, .foot span, summary, #shortcutDialog dd, .drawerHead h2, #details > strong, #details dt, #linkList label, #summary, #issues, #linksCount, #nativeStatus, #details";
 function translateControls() {
   for (const el of document.querySelectorAll(labelSelector)) {
     for (const n of el.childNodes) {
@@ -545,6 +596,7 @@ function setOriginals(sources) {
     option.textContent = src.title;
     nativeSources.append(option);
   }
+  document.getElementById("rawView").hidden = !nativeSources.length || location.protocol === "file:";
   nativeSources.hidden = !nativeSources.length;
   document.getElementById("saveOriginal").hidden = nativeSources.hidden;
 }
@@ -659,7 +711,7 @@ async function openNative(preferredRank = true) {
   if (generation !== nativeGeneration) return;
   if (!base) {
     nativeStatus.textContent =
-      "Open this report with serveutil view or the desktop app for Full Perfetto.";
+      "Open this report with serveutil view or the desktop app to read original tracks.";
     return;
   }
   nativeStatus.textContent = src
@@ -698,7 +750,6 @@ function closeNative() {
   nativePanel.hidden = true;
   document.body.classList.remove("full-trace");
 }
-document.getElementById("fullTrace").onclick = () => openNative();
 document.getElementById("leaveNative").onclick = closeNative;
 nativeSources.onchange = () => openNative(false);
 document.getElementById("saveOriginal").onclick = async () => {
@@ -2241,6 +2292,7 @@ let report,
   windowEnd = 1,
   bounds = [0, 1],
   drag = null,
+  selection = null,
   targets = [],
   links = [],
   eventLinks = new WeakMap(),
@@ -2353,11 +2405,16 @@ function selectedClock(us) {
 function short(text, n) {
   return text.length <= n ? text : text.slice(0, n - 1) + "…";
 }
-function details(title, data) {
+function details(title, data, reveal = true) {
+  if (reveal) {
+    $("inspector").hidden = false;
+    document.body.classList.add("inspecting");
+  }
   const root = $("details"),
     head = document.createElement("strong"),
     list = document.createElement("dl");
   root.replaceChildren(head, list);
+  root.scrollTop = 0;
   head.textContent = title;
   for (const [k, v] of Object.entries(data)) {
     if (v == null) continue;
@@ -2391,6 +2448,7 @@ function load(data) {
   if (data?.schema !== "serveutil.report/1")
     throw Error("Choose a ServeUtil report (.html or report JSON).");
   report = data;
+  resetSelection();
   for (const t of data.traces) {
     if (
       !t.rank_origin_unix_ns &&
@@ -2425,6 +2483,7 @@ function load(data) {
   document.body.classList.remove("empty");
   $("view").value =
     data.initial_view === "communication" ? "communication" : "overview";
+  currentView = $("view").value;
   let lo = Infinity,
     hi = -Infinity;
   stages = [];
@@ -2494,7 +2553,7 @@ function load(data) {
       " · Incomplete capture — see collection details";
   }
   if (data.traces.some((t) => t.native_only))
-    $("summary").textContent += " · Open native tracks in Full Perfetto";
+    $("summary").textContent += " · See original tracks in the view selector";
   if (data.traces.some((t) => t.parse_error))
     $("summary").textContent +=
       " · Unreadable original trace (see collection details)";
@@ -2556,7 +2615,7 @@ function load(data) {
       Rank: rankLabel(s.rank),
       Duration: fmt(s.e.dur),
       Annotation: s.e.original,
-    });
+    }, false);
   }
   refresh();
 }
@@ -2653,8 +2712,9 @@ function refresh() {
       selected.devices.includes(c.device)
     );
   });
-  if (mode === "overview" || mode === "hardware")
+  if (["overview", "hardware", "communication"].includes(mode))
     for (const c of hw) {
+      if (mode === "communication" && !/^(rdma|netdev|nvlink|pcie)\./.test(c.metric)) continue;
       if (
         mode === "overview" &&
         ![
@@ -2706,8 +2766,7 @@ function refresh() {
       }
     }
   const visibleTraces = report.traces.filter(visibleTrace);
-  items = report.findings.filter((e) => {
-    if (e.ts >= windowEnd || e.ts + e.dur <= windowStart) return false;
+  const scopedFindings = report.findings.filter((e) => {
     if (e.scope && e.metric)
       return hw.some(
         (series) =>
@@ -2720,6 +2779,7 @@ function refresh() {
       (t) => t.rank === e.rank && (!e.node || t.node === e.node),
     );
   });
+  items = scopedFindings.filter(e => e.ts < windowEnd && e.ts + e.dur > windowStart);
   if (items.length)
     groups.set("opportunities", {
       label: "Opportunities",
@@ -2740,16 +2800,19 @@ function refresh() {
       return order.indexOf(a.kind) - order.indexOf(b.kind);
     });
   $("issues").replaceChildren();
-  $("issueCount").textContent = items.length;
-  renderIssueGroups(items);
-  if (!items.length)
+  const [from, to] = analysisInterval();
+  const selectedItems = scopedFindings.filter(e => e.ts < to && e.ts + e.dur > from);
+  $("issueCount").textContent = selectedItems.length;
+  renderIssueGroups(selectedItems);
+  if (!selectedItems.length)
     $("issues").textContent = "No matching opportunities in this interval.";
   draw();
 }
 function renderIssueGroups(findings) {
+  const [startTime, endTime] = analysisInterval();
   const byType = new Map();
   const inWindow = (e) =>
-    Math.min(windowEnd, e.ts + e.dur) - Math.max(windowStart, e.ts);
+    Math.min(endTime, e.ts + e.dur) - Math.max(startTime, e.ts);
   for (const e of [...findings].sort((a, b) => inWindow(b) - inWindow(a) || a.ts - b.ts)) {
     if (!byType.has(e.name)) byType.set(e.name, []);
     byType.get(e.name).push(e);
@@ -2764,6 +2827,7 @@ function renderIssueGroups(findings) {
     time.textContent = scope + " · " + fmt(inWindow(e)) + " in selection";
     button.append(time);
     button.onclick = () => {
+      selection = {type:"event", label:"Opportunities", event:e, start:e.ts, end:e.ts + e.dur};
       details(e.name, e);
       setWindow(e.ts - e.dur, e.ts + 2 * e.dur);
     };
@@ -2795,6 +2859,7 @@ function deviceLabel(c) {
   );
 }
 function resources(hw, mode) {
+  const [startTime, endTime] = analysisInterval();
   const panel = $("rates"),
     root = $("metrics");
   root.replaceChildren();
@@ -2825,7 +2890,7 @@ function resources(hw, mode) {
     for (const [end, value, start] of c.points) {
       const duration = Math.max(
         0,
-        Math.min(end, windowEnd) - Math.max(start, windowStart),
+        Math.min(end, endTime) - Math.max(start, startTime),
       );
       if (duration > 0) {
         area += duration * value;
@@ -3040,6 +3105,7 @@ function byteLabel(n) {
   return n + " B";
 }
 function linkMatches(link) {
+  const [from, to] = analysisInterval();
   const node = $("node").value,
     rank = $("rank").value;
   return (
@@ -3050,8 +3116,8 @@ function linkMatches(link) {
       link.ends.some(
         (e) =>
           e.ts != null &&
-          e.ts <= windowEnd &&
-          e.ts + (e.dur || 0) >= windowStart,
+          e.ts <= to &&
+          e.ts + (e.dur || 0) >= from,
       ))
   );
 }
@@ -3247,11 +3313,12 @@ function roleInScope(node, role) {
   );
 }
 function transferDetails(transfers) {
+  const [startTime, endTime] = analysisInterval();
   const section = $("kvSection"),
     table = $("kvTable");
   table.replaceChildren();
   const records = transfers.filter(
-    (t) => t.ts < windowEnd && t.ts + t.dur > windowStart,
+    (t) => t.ts < endTime && t.ts + t.dur > startTime,
   );
   for (const row of records.slice(0, 12)) {
     const b = document.createElement("button");
@@ -3291,12 +3358,13 @@ function transferDetails(transfers) {
   section.hidden = !table.childElementCount;
 }
 function computeResources(rank) {
+  const [startTime, endTime] = analysisInterval();
   const root = $("metrics");
   for (const t of report.traces) {
     if (!visibleTrace(t)) continue;
     const stats = new Map();
     for (const e of t.events) {
-      if (!e.gemm || e.ts < windowStart || e.ts + e.dur > windowEnd) continue;
+      if (!e.gemm || e.ts < startTime || e.ts + e.dur > endTime) continue;
       const key = e.device + "/" + e.gemm.dtype;
       let g = stats.get(key);
       if (!g) {
@@ -3345,6 +3413,7 @@ function computeResources(rank) {
   }
 }
 function collectiveResources(rank) {
+  const [startTime, endTime] = analysisInterval();
   const root = $("metrics");
   for (const trace of report.traces) {
     if (!visibleTrace(trace)) continue;
@@ -3353,8 +3422,8 @@ function collectiveResources(rank) {
       const op = event.collective;
       if (
         op?.algorithm_GB_s == null ||
-        event.ts < windowStart ||
-        event.ts + op.duration_us > windowEnd
+        event.ts < startTime ||
+        event.ts + op.duration_us > endTime
       )
         continue;
       const key = JSON.stringify([
@@ -3405,13 +3474,14 @@ function setWindow(a, b) {
 }
 function draw() {
   if (!report) return;
-  const w = Math.max(330, Math.floor(canvas.parentElement.clientWidth)),
+  const w = Math.max(1, Math.floor(canvas.clientWidth)),
     height = 34 + rows.length * 32,
     ratio = Math.min(window.devicePixelRatio || 1, 2);
   // Limit the backing store on captures containing many streams.
   const scale = Math.min(ratio, 16000 / Math.max(height, 1));
-  canvas.width = Math.round(w * scale);
-  canvas.height = Math.round(height * scale);
+  const backingWidth = Math.round(w * scale), backingHeight = Math.round(height * scale);
+  if (canvas.width !== backingWidth) canvas.width = backingWidth;
+  if (canvas.height !== backingHeight) canvas.height = backingHeight;
   canvas.style.height = height + "px";
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.fillStyle = "white";
@@ -3494,6 +3564,11 @@ function draw() {
             y + 20,
           );
         }
+        if (selection?.event === e || (selection?.event && selection.event.transfer && selection.event.transfer === e.transfer)) {
+          ctx.strokeStyle = "#101828";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(a, y + 4, Math.max(sw, 2), 23);
+        }
         visible.push({ a, b, e });
         if ($("view").value === "communication" && chosenLink) {
           const member = chosenLink.ends.findIndex((end) =>
@@ -3535,22 +3610,48 @@ function draw() {
     }
     ctx.restore();
   }
+  paintSelection(x, w, height);
   $("range").textContent =
     selectedClock(windowStart) + " – " + selectedClock(windowEnd);
 }
+function eventAt(visible, px) {
+  let nearest;
+  let distance = 3;
+  for (let i = visible.length - 1; i >= 0; i--) {
+    const item = visible[i];
+    const gap = Math.max(item.a - px, px - Math.max(item.a + 1, item.b), 0);
+    if (gap === 0) return item;
+    if (gap < distance) { nearest = item; distance = gap; }
+  }
+  return nearest;
+}
 function selectAt(px, py) {
   const hit = targets.find((t) => py >= t.y && py < t.y + 32);
-  if (!hit) return;
+  if (!hit) return clearSelection();
+  if (px < titleWidth) {
+    if (selection?.type === "area") return toggleAreaTrack(hit.row);
+    resetSelection();
+    details(hit.row.label, {Track: hit.row.label, Type: hit.row.kind, Events: hit.row.events?.length, Samples: hit.row.points?.length});
+    refresh();
+    return;
+  }
   if (hit.points) {
     const ts =
       windowStart +
       ((px - titleWidth) / (canvas.clientWidth - titleWidth - 12)) *
         (windowEnd - windowStart);
     let best = null;
-    for (const p of hit.points)
-      if (!best || Math.abs(p[0] - ts) < Math.abs(best[0] - ts)) best = p;
-    if (best) {
+    let distance = Infinity;
+    for (const p of hit.points) {
+      const start = p.length >= 3 ? p[2] : p[0];
+      const gap = Math.max(start - ts, ts - p[0], 0);
+      if (gap < distance) { best = p; distance = gap; }
+    }
+    if (!best) return clearSelection();
+    {
       const r = hit.row;
+      selection = {type: "sample", label: r.label, point: best, start: best[2] ?? best[0], end: best[0]};
+      refresh();
       details(r.name, {
         Device: r.device,
         Time: fmt(best[0]),
@@ -3568,18 +3669,20 @@ function selectAt(px, py) {
     }
     return;
   }
-  const target = hit.visible.findLast(
-    (t) => px >= t.a && px <= Math.max(t.a + 1, t.b),
-  );
-  const match = target && eventLinks.get(target.e.transfer || target.e);
-  if (match && $("view").value === "communication") {
-    chosenLink = match;
-    refresh();
-  }
-  if (target?.e.collective) {
-    const op = target.e.collective;
+  const target = eventAt(hit.visible, px);
+  if (!target) return clearSelection();
+  inspectEvent(target.e, hit.row.label);
+}
+function inspectEvent(event, label) {
+  selection = {type: "event", label, event, start: event.ts, end: event.ts + event.dur};
+  const match = eventLinks.get(event.transfer || event);
+  if (match && $("view").value === "communication") chosenLink = match;
+  refresh();
+  if (event.collective) {
+    const op = event.collective;
     details(op.op, {
-      Kernel: target.e.original || target.e.name,
+      Track: label,
+      Kernel: event.original || event.name,
       Direction: op.direction,
       "Peer rank": op.peer_rank,
       Group: op.group,
@@ -3596,42 +3699,30 @@ function selectAt(px, py) {
       "Part of a multi-kernel operation": op.part_of_operation,
       Unavailable: op.unavailable,
     });
-  } else if (target)
-    details(displayName(target.e), {
-      ...target.e,
-      ts: fmt(target.e.ts),
-      dur: fmt(target.e.dur),
+  } else
+    details(displayName(event), {
+      Track: label,
+      ...event,
+      ts: fmt(event.ts),
+      dur: fmt(event.dur),
     });
 }
 function loc(ev) {
   const box = canvas.getBoundingClientRect();
   return [ev.clientX - box.left, ev.clientY - box.top];
 }
-canvas.onpointerdown = (e) => {
-  const [x] = loc(e);
-  drag = x;
-  canvas.setPointerCapture(e.pointerId);
-};
-canvas.onpointerup = (e) => {
-  if (drag === null) return;
-  const [x, y] = loc(e),
-    a = drag;
-  drag = null;
-  if (Math.abs(x - a) < 5) {
-    selectAt(x, y);
+let currentView = "overview";
+for (const id of ["view", "depth"]) $(id).onchange = () => {
+  if ($("view").value === "raw") {
+    $("view").value = currentView;
+    openNative();
     return;
   }
-  const toTime = (px) =>
-    windowStart +
-    ((px - titleWidth) / (canvas.clientWidth - titleWidth - 12)) *
-      (windowEnd - windowStart);
-  setWindow(toTime(Math.min(x, a)), toTime(Math.max(x, a)));
+  currentView = $("view").value;
+  clearSelection();
 };
-canvas.onpointercancel = () => {
-  drag = null;
-};
-for (const id of ["view", "depth"]) $(id).onchange = refresh;
 $("node").onchange = () => {
+  resetSelection();
   repopulateRanks();
   if (["rank", "local_utc"].includes($("clock").value))
     $("clock").value = "capture";
@@ -3639,6 +3730,7 @@ $("node").onchange = () => {
   refresh();
 };
 $("rank").onchange = () => {
+  resetSelection();
   if (!$("rank").value && ["rank", "local_utc"].includes($("clock").value))
     $("clock").value = "capture";
   if (
@@ -3667,6 +3759,7 @@ $("names").onchange = () => {
   refresh();
 };
 $("interval").onchange = (e) => {
+  resetSelection();
   if (!e.target.value) {
     setWindow(...bounds);
     return;
@@ -3677,6 +3770,7 @@ $("interval").onchange = (e) => {
 };
 $("fit").onclick = () => {
   $("interval").value = "";
+  resetSelection();
   setWindow(...bounds);
 };
 function zoom(f) {
@@ -3822,6 +3916,12 @@ async function portableFile(file) {
   const data = await unpack(await new Response(stream()).text());
   return data?.schema === "serveutil.report/1" ? data : null;
 }
+async function openOriginalFile() {
+  resetSelection();
+  report = null;
+  document.body.classList.add("empty");
+  await openNative();
+}
 async function openFiles(files) {
   if (!files.length) return;
   const status = document.body.classList.contains("empty")
@@ -3848,7 +3948,7 @@ async function openFiles(files) {
         const data = await importFile(file);
         setOriginals(rawSourcesIn(html));
         if (data) load(data);
-        else await openNative();
+        else await openOriginalFile();
       } catch (err) {
         status.textContent = err.message;
       }
@@ -3900,7 +4000,7 @@ async function openFiles(files) {
     });
   } else {
     if (problem) status.textContent = problem.message;
-    await openNative();
+    await openOriginalFile();
   }
 }
 $("choose").onclick = () => $("file").click();
@@ -4063,4 +4163,270 @@ unpack($("capture-data").textContent)
   .catch((err) => {
     $("importStatus").textContent = "Unable to read capture: " + err.message;
   });
+
+// The wheel and drag navigation below adapts Perfetto v59.1 timeline_interactions.ts.
+// Copyright (C) 2024 The Android Open Source Project. Licensed under Apache-2.0.
+function analysisInterval() {
+  return selection?.type === "area" ? [selection.start, selection.end] : [windowStart, windowEnd];
+}
+function hideInspector() {
+  $("inspector").hidden = true;
+  document.body.classList.remove("inspecting");
+}
+function resetSelection() {
+  selection = null;
+  chosenLink = null;
+  $("details").replaceChildren();
+  hideInspector();
+}
+function clearSelection() {
+  resetSelection();
+  refresh();
+}
+function plotWidth() {
+  return Math.max(1, canvas.clientWidth - titleWidth - 12);
+}
+function fractionAt(x) {
+  return Math.max(0, Math.min(1, (x - titleWidth) / plotWidth()));
+}
+function timeAt(x) {
+  return windowStart + fractionAt(x) * (windowEnd - windowStart);
+}
+function zoomAt(factor, x) {
+  const fraction = fractionAt(x);
+  const anchor = timeAt(x);
+  const span = (windowEnd - windowStart) * factor;
+  setWindow(anchor - span * fraction, anchor + span * (1 - fraction));
+}
+function panPixels(px) {
+  const delta = px * (windowEnd - windowStart) / plotWidth();
+  setWindow(windowStart + delta, windowEnd + delta);
+}
+function fitSelection() {
+  if (!selection) return;
+  const pad = Math.max((selection.end - selection.start) * 0.1, 0.01);
+  setWindow(selection.start - pad, selection.end + pad);
+}
+function describeArea() {
+  const {start, end, tracks} = selection;
+  details("Time selection", {
+    Start: selectedClock(start), End: selectedClock(end), Duration: fmt(end - start),
+    Tracks: [...tracks].join("\n") || "—",
+  });
+}
+function toggleAreaTrack(row) {
+  const tracks = selection.tracks;
+  if (tracks.has(row.label)) tracks.delete(row.label);
+  else tracks.add(row.label);
+  describeArea();
+  draw();
+}
+function paintSelection(x, width, height) {
+  if (!selection) return;
+  const start = Math.max(titleWidth, x(selection.start));
+  const end = Math.min(width - 12, x(selection.end));
+  if (end < start) return;
+  if (selection.type === "area") {
+    ctx.fillStyle = "rgba(42, 98, 183, 0.18)";
+    for (const {row, y} of targets) {
+      if (!selection.tracks.has(row.label)) continue;
+      ctx.fillRect(start, y, Math.max(1, end - start), 30);
+      ctx.fillRect(1, y + 3, 4, 25);
+    }
+    ctx.fillStyle = "#235c9e";
+    for (const edge of [selection.start, selection.end]) {
+      const pos = x(edge);
+      if (pos < titleWidth || pos > width - 12) continue;
+      ctx.fillRect(pos, 23, 1, height - 23);
+      ctx.fillRect(pos - 3, 22, 7, 5);
+    }
+  } else if (selection.type === "sample") {
+    const row = targets.find(t => t.row.label === selection.label);
+    if (row) {
+      ctx.strokeStyle = "#163e72";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(start, row.y + 2, Math.max(2, end - start), 26);
+    }
+  }
+}
+let cursorX;
+function areaEdge(x, y) {
+  if (selection?.type !== "area" || y > 29 || x < titleWidth) return;
+  const tolerance = (windowEnd - windowStart) / plotWidth() * 7;
+  for (const edge of ["start", "end"]) {
+    if (Math.abs(timeAt(x) - selection[edge]) <= tolerance) return edge;
+  }
+}
+canvas.onpointerdown = (e) => {
+  if (!report || drag || (e.button !== 0 && e.button !== 1)) return;
+  const [x, y] = loc(e);
+  canvas.focus({preventScroll:true});
+  const pan = e.shiftKey || e.button === 1;
+  drag = {x, y, lastX:x, id:e.pointerId, anchor:timeAt(x), mode:pan ? "pan" : areaEdge(x,y) || "select", moved:false};
+  canvas.setPointerCapture(e.pointerId);
+  e.preventDefault();
+};
+function movePointer(e) {
+  const [x, y] = loc(e);
+  cursorX = x;
+  if (!drag) {
+    const lane = targets.find(t => y >= t.y && y < t.y + 32);
+    const item = x >= titleWidth && lane?.visible && eventAt(lane.visible, x);
+    canvas.title = item ? displayName(item.e) + " · " + fmt(item.e.dur) : lane?.row.label || "";
+    canvas.style.cursor = areaEdge(x,y) ? "ew-resize" : e.shiftKey ? "grab" : x < titleWidth ? "pointer" : "crosshair";
+    return;
+  }
+  if (drag.id !== e.pointerId) return;
+  if (!drag.moved && Math.hypot(x - drag.x, y - drag.y) < 4) return;
+  drag.moved = true;
+  if (drag.mode === "pan") {
+    canvas.style.cursor = "grabbing";
+    if (x !== drag.lastX) panPixels(drag.lastX - x);
+  } else if (drag.mode === "select") {
+    const current = timeAt(x);
+    selection = {type:"area", start:Math.min(drag.anchor,current), end:Math.max(drag.anchor,current),
+      tracks:new Set(targets.filter(t => t.y <= Math.max(y,drag.y) && t.y + 31 >= Math.min(y,drag.y)).map(t => t.row.label))};
+    draw();
+  } else {
+    const current = timeAt(x);
+    if (drag.mode === "start") selection.start = Math.min(current,selection.end);
+    else selection.end = Math.max(current,selection.start);
+    draw();
+  }
+  drag.lastX = x;
+}
+canvas.onpointermove = movePointer;
+canvas.onpointerup = e => {
+  if (drag?.id !== e.pointerId) return;
+  movePointer(e);
+  const {moved, mode} = drag;
+  drag = null;
+  if (!moved && mode !== "pan") selectAt(...loc(e));
+  if (moved && mode !== "pan") {
+    if (selection.end <= selection.start) return clearSelection();
+    describeArea();
+    refresh();
+  }
+  canvas.style.cursor = "crosshair";
+};
+canvas.onlostpointercapture = canvas.onpointercancel = () => {
+  if (drag && drag.mode !== "pan" && drag.moved) clearSelection();
+  drag = null;
+};
+canvas.addEventListener("wheel", e => {
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? plotWidth() : 1;
+  if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+    panPixels((e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX) * unit);
+  } else if (e.ctrlKey || e.metaKey) {
+    const delta = e.deltaY * unit;
+    zoomAt(1 + Math.sign(delta) * Math.log2(1 + Math.abs(delta)) * 0.02, loc(e)[0]);
+  } else return;
+  e.preventDefault();
+}, {passive:false});
+function adjacentEvent(direction) {
+  if (selection?.type !== "event") return;
+  const row = rows.find(r => r.label === selection.label);
+  if (!row?.events) return;
+  const sorted = [...row.events].sort((a,b) => a.ts - b.ts);
+  const index = sorted.indexOf(selection.event);
+  const event = index >= 0 && sorted[index + direction];
+  if (!event) return;
+  inspectEvent(event, row.label);
+  if (event.ts >= windowEnd || event.ts + event.dur <= windowStart) {
+    const span = windowEnd - windowStart, center = event.ts + event.dur / 2;
+    setWindow(center - span / 2, center + span / 2);
+  }
+}
+$("keyHelp").onclick = () => $("shortcutDialog").showModal();
+$("closeHelp").onclick = () => $("shortcutDialog").close();
+$("closeDetails").onclick = () => { hideInspector(); canvas.focus({preventScroll:true}); };
+document.addEventListener("keydown", e => {
+  if (!report || !nativePanel.hidden || document.querySelector("dialog[open]") || e.altKey || e.metaKey || e.ctrlKey ||
+      e.target.closest?.("input, select, textarea, [contenteditable=true]")) return;
+  const x = cursorX ?? titleWidth + plotWidth() / 2;
+  if (e.key === "?") $("shortcutDialog").showModal();
+  else switch (e.code) {
+    case "KeyW": zoomAt(0.9, x); break;
+    case "KeyS": zoomAt(1 / 0.9, x); break;
+    case "KeyA": panPixels(-50); break;
+    case "KeyD": panPixels(50); break;
+    case "KeyF": fitSelection(); break;
+    case "KeyQ":
+      if ($("inspector").hidden && $("details").childElementCount) {
+        $("inspector").hidden = false;
+        document.body.classList.add("inspecting");
+      } else hideInspector();
+      break;
+    case "KeyR":
+      if (!selection || selection.type === "area" || selection.end <= selection.start) return;
+      selection = {...selection, type:"area", tracks:new Set([selection.label])};
+      describeArea(); refresh(); break;
+    case "Period": adjacentEvent(1); break;
+    case "Comma": adjacentEvent(-1); break;
+    case "Escape": clearSelection(); break;
+    default: return;
+  }
+  e.preventDefault();
+});
+
+// Use the active timeline tracks, so the finder respects the rank and depth filters.
+let finderCommands = false;
+function finderEntries() {
+  if (finderCommands) return [
+    ["Fit selection", fitSelection], ["Full capture", () => $("fit").click()],
+    ["Zoom in", () => zoom(0.5)], ["Zoom out", () => zoom(2)],
+    ["Find track", () => openFinder(false)], ["Keyboard shortcuts", () => $("keyHelp").click()],
+    ["Clear selection", clearSelection],
+  ].map(([name, run]) => ({name:uiText(name), run}));
+  return targets.map(({row,y}) => ({
+    name:row.label,
+    run() {
+      $("scroller").scrollTop = Math.max(0,y - 35);
+      resetSelection();
+      details(row.label, {Track:row.label, Type:row.kind, Events:row.events?.length, Samples:row.points?.length});
+      refresh();
+    },
+  }));
+}
+function filterFinder() {
+  const query = $("finderInput").value.toLowerCase().trim();
+  const result = $("finderResults");
+  result.replaceChildren();
+  for (const {name,run} of finderEntries().filter(item => item.name.toLowerCase().includes(query))) {
+    const button = document.createElement("button");
+    button.textContent = name;
+    button.onclick = () => {
+      $("finder").close();
+      canvas.focus({preventScroll:true});
+      run();
+    };
+    result.append(button);
+  }
+  if (!result.childElementCount) result.textContent = uiText("No matches");
+}
+function openFinder(commands) {
+  finderCommands = commands;
+  $("finderTitle").textContent = uiText(commands ? "Find command" : "Find track");
+  $("finderInput").value = "";
+  filterFinder();
+  $("finder").showModal();
+  $("finderInput").focus();
+}
+$("finderInput").oninput = filterFinder;
+$("closeFinder").onclick = () => $("finder").close();
+$("finder").onkeydown = e => {
+  const buttons = Array.from($("finderResults").children);
+  const i = buttons.indexOf(document.activeElement);
+  if (e.key === "ArrowDown") buttons[Math.min(i + 1, buttons.length - 1)]?.focus();
+  else if (e.key === "ArrowUp") (buttons[i - 1] || $("finderInput")).focus();
+  else if (e.key === "Enter" && e.target === $("finderInput")) buttons[0]?.click();
+  else return;
+  e.preventDefault();
+};
+document.addEventListener("keydown", e => {
+  if (!report || !nativePanel.hidden || document.querySelector("dialog[open]") || e.altKey ||
+      !(e.ctrlKey || e.metaKey) || e.code !== "KeyP") return;
+  e.preventDefault();
+  openFinder(e.shiftKey);
+});
 </script></body></html>

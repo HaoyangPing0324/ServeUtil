@@ -10,7 +10,7 @@
 
 ServeUtil combines PyTorch, vLLM and SGLang traces with GPU and network counters. Select a Decode interval to see which ranks were computing, which were waiting on communication and how the measured bandwidth compares with a reference from the same hardware.
 
-<img src="assets/h20-decode.png" width="100%" alt="Qwen3 Decode on H20 with GPU gaps, HBM read and write rates, Tensor activity and BF16 GEMM throughput">
+<a href="https://haoyangping0324.github.io/ServeUtil/h20-decode.html"><img src="assets/h20-decode.png" width="100%" alt="Qwen3 Decode on H20 with GPU gaps, HBM read and write rates, Tensor activity and BF16 GEMM throughput"></a>
 
 ## What ServeUtil adds
 
@@ -18,7 +18,7 @@ ServeUtil combines PyTorch, vLLM and SGLang traces with GPU and network counters
 |---|---|
 | PyTorch operators, kernels and copies | Device-level HBM reads and writes, PCIe and NVLink traffic, network and RDMA port throughput, and SM and Tensor pipeline activity where supported. The original trace is preserved. |
 | An absolute rate such as 58 MB/s | Compare with a microbenchmark on the same device, port and direction. Dense GEMMs with recorded shapes and one correlated kernel can also show effective TFLOP/s. |
-| A deeply nested, multi-rank timeline | Start with Prefill and Decode. Focus on a node, rank, operator depth or leaf. Follow matched Send/Recv operations or inspect KV handoffs between Prefill and Decode. Open Full Perfetto for original events, flows and SQL. |
+| A deeply nested, multi-rank timeline | Start with Prefill and Decode. Focus on a node, rank, operator depth or leaf. Follow matched Send/Recv operations or inspect KV handoffs between Prefill and Decode. Choose Original tracks under View for original events, flows and SQL. |
 | A slow interval | Jump to repeated GPU gaps, communication without overlapping compute, sustained bandwidth pressure or comparable steps with different rank durations. Each marker gives its evidence. |
 
 On two H20 hosts, the sending port averaged 58.5 MB/s over a 3.05-second SGLang TP2 window, about 0.51% of its directional eRDMA reference. Of 4,469 complete AllReduce operations, 3,956 carried only 2 KiB. The message sizes and time between operations help explain the low window average. [Hardware validation and model results](docs/en/validation.md)

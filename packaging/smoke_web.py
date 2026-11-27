@@ -146,7 +146,7 @@ def verify_capture_cycles(page):
             [[20, 2]],
         ]
         page.locator("#node").select_option("host")
-        page.locator("#fullTrace").click()
+        page.locator("#view").select_option("raw")
         with page.expect_download() as download:
             page.locator("#saveOriginal").click()
         with tarfile.open(download.value.path()) as archive:
@@ -161,7 +161,7 @@ def verify_capture_cycles(page):
                 )
         page.locator("#leaveNative").click()
         page.locator("#rank").select_option("0")
-        page.locator("#fullTrace").click()
+        page.locator("#view").select_option("raw")
         assert (
             page.locator("#nativeSources option:checked").inner_text()
             == "0 · all cycles"
@@ -246,6 +246,92 @@ def verify_device_finding_scope(page):
     assert "Repeated GPU gap" in page.locator("#details").inner_text()
 
 
+def verify_navigation(page, root):
+    page.goto(root + "h20-decode.html")
+    chart = page.locator("#chart")
+    page.wait_for_function("typeof targets !== 'undefined' && targets.some(t => t.visible?.length)")
+    chart.scroll_into_view_if_needed()
+    def viewport():
+        return page.evaluate("[windowStart, windowEnd]")
+    def span():
+        start, end = viewport()
+        return end - start
+    def point(fraction, y):
+        box = chart.bounding_box()
+        left = page.evaluate("titleWidth")
+        return box["x"] + left + (box["width"] - left - 12) * fraction, box["y"] + y
+
+    # On the measured decode excerpt the first lane spans the selected step.
+    page.mouse.click(*point(0.53, 44))
+    assert page.locator("#inspector").is_visible()
+    assert page.locator("#inspector").bounding_box()["y"] < page.viewport_size["height"]
+    assert page.evaluate("selection.type === 'event' && !!selection.event")
+    assert "Decode" in page.locator("#details").inner_text()
+    page.keyboard.press("r")
+    assert page.evaluate("selection.type") == "area"
+    page.keyboard.press("Escape")
+    assert not page.locator("#inspector").is_visible()
+    start_window = viewport()
+    page.mouse.move(*point(0.25, 45))
+    page.mouse.down()
+    page.mouse.move(*point(0.55, 108), steps=5)
+    page.mouse.up()
+    assert viewport() == start_window
+    assert page.evaluate("selection.tracks.size") >= 2
+    assert "Duration" in page.locator("#details").inner_text()
+    page.keyboard.press("f")
+    assert span() < (start_window[1] - start_window[0]) * 0.5
+    before = viewport()
+    page.keyboard.press("d")
+    assert viewport()[0] > before[0]
+    page.keyboard.press("a")
+    before = span()
+    page.keyboard.press("w")
+    assert span() < before
+    page.keyboard.press("s")
+    before = viewport()
+    page.keyboard.down("Shift")
+    page.mouse.move(*point(0.6, 45))
+    page.mouse.down()
+    page.mouse.move(*point(0.45, 45), steps=4)
+    page.mouse.up()
+    page.keyboard.up("Shift")
+    assert viewport()[0] > before[0]
+    before = span()
+    page.keyboard.down("Control")
+    page.mouse.wheel(0, -100)
+    page.keyboard.up("Control")
+    page.wait_for_function("before => windowEnd-windowStart < before", arg=before)
+    page.keyboard.press("q")
+    assert not page.locator("#inspector").is_visible()
+    page.keyboard.press("q")
+    assert page.locator("#inspector").is_visible()
+    page.keyboard.press("Escape")
+    page.keyboard.press("Control+p")
+    page.locator("#finderInput").fill("compute")
+    page.locator("#finderInput").press("Enter")
+    assert "compute" in page.locator("#details").inner_text()
+    page.keyboard.press("Control+Shift+p")
+    page.locator("#finderInput").fill("Full capture")
+    page.locator("#finderInput").press("Enter")
+    page.keyboard.press("?")
+    assert page.locator("#shortcutDialog").is_visible()
+    page.keyboard.press("Escape")
+    # Click within the first sample's interval, not near its ending timestamp.
+    page.goto(root + "sglang-erdma.html")
+    page.wait_for_function("typeof targets !== 'undefined' && targets.some(t=>t.points?.length)")
+    chart.scroll_into_view_if_needed()
+    sample = page.evaluate("""() => {
+        const t = targets.find(t=>t.points?.length > 1);
+        const p = t.points[1];
+        const ts = Math.max(windowStart, p[2]) + 0.2 * (p[0]-Math.max(windowStart,p[2]));
+        return {fraction:(ts-windowStart)/(windowEnd-windowStart), y:t.y+15, value:p[1]};
+    }""")
+    page.mouse.click(*point(sample["fraction"], sample["y"]))
+    assert page.evaluate("selection.point[1]") == sample["value"]
+    assert "Original sample" in page.locator("#details").inner_text()
+
+
 def verify(site):
     with ThreadingHTTPServer(
         ("127.0.0.1", 0), functools.partial(SimpleHTTPRequestHandler, directory=site)
@@ -258,9 +344,10 @@ def verify(site):
                 errors = []
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 root = f"http://127.0.0.1:{server.server_port}/"
+                verify_navigation(page, root)
                 page.goto(root)
                 assert page.locator("html").get_attribute("lang") == "en"
-                page.locator('a.card[href="bandwidth.html"]').click()
+                page.locator('.side a[href="bandwidth.html"]').click()
                 page.locator("a.language").click()
                 assert page.url.endswith("/zh/bandwidth.html")
                 assert "0.51%" in page.locator("article").inner_text()
@@ -290,7 +377,7 @@ def verify(site):
                 assert page.url.endswith("/downloads.html")
                 page.set_viewport_size({"width": 1400, "height": 900})
                 page.goto(f"http://127.0.0.1:{server.server_port}/viewer.html")
-                assert not page.locator("#fullTrace").is_visible()
+                assert not page.get_by_role("button", name="Full Perfetto").count()
                 page.get_by_role("link", name="SGLang AllReduce on two H20s").click()
                 card = page.get_by_role(
                     "button", name="Rank 0 · all_reduce", exact=False

@@ -19,6 +19,7 @@ let report,
   windowEnd = 1,
   bounds = [0, 1],
   drag = null,
+  selection = null,
   targets = [],
   links = [],
   eventLinks = new WeakMap(),
@@ -131,11 +132,16 @@ function selectedClock(us) {
 function short(text, n) {
   return text.length <= n ? text : text.slice(0, n - 1) + "…";
 }
-function details(title, data) {
+function details(title, data, reveal = true) {
+  if (reveal) {
+    $("inspector").hidden = false;
+    document.body.classList.add("inspecting");
+  }
   const root = $("details"),
     head = document.createElement("strong"),
     list = document.createElement("dl");
   root.replaceChildren(head, list);
+  root.scrollTop = 0;
   head.textContent = title;
   for (const [k, v] of Object.entries(data)) {
     if (v == null) continue;
@@ -169,6 +175,7 @@ function load(data) {
   if (data?.schema !== "serveutil.report/1")
     throw Error("Choose a ServeUtil report (.html or report JSON).");
   report = data;
+  resetSelection();
   for (const t of data.traces) {
     if (
       !t.rank_origin_unix_ns &&
@@ -203,6 +210,7 @@ function load(data) {
   document.body.classList.remove("empty");
   $("view").value =
     data.initial_view === "communication" ? "communication" : "overview";
+  currentView = $("view").value;
   let lo = Infinity,
     hi = -Infinity;
   stages = [];
@@ -272,7 +280,7 @@ function load(data) {
       " · Incomplete capture — see collection details";
   }
   if (data.traces.some((t) => t.native_only))
-    $("summary").textContent += " · Open native tracks in Full Perfetto";
+    $("summary").textContent += " · See original tracks in the view selector";
   if (data.traces.some((t) => t.parse_error))
     $("summary").textContent +=
       " · Unreadable original trace (see collection details)";
@@ -334,7 +342,7 @@ function load(data) {
       Rank: rankLabel(s.rank),
       Duration: fmt(s.e.dur),
       Annotation: s.e.original,
-    });
+    }, false);
   }
   refresh();
 }
@@ -431,8 +439,9 @@ function refresh() {
       selected.devices.includes(c.device)
     );
   });
-  if (mode === "overview" || mode === "hardware")
+  if (["overview", "hardware", "communication"].includes(mode))
     for (const c of hw) {
+      if (mode === "communication" && !/^(rdma|netdev|nvlink|pcie)\./.test(c.metric)) continue;
       if (
         mode === "overview" &&
         ![
@@ -484,8 +493,7 @@ function refresh() {
       }
     }
   const visibleTraces = report.traces.filter(visibleTrace);
-  items = report.findings.filter((e) => {
-    if (e.ts >= windowEnd || e.ts + e.dur <= windowStart) return false;
+  const scopedFindings = report.findings.filter((e) => {
     if (e.scope && e.metric)
       return hw.some(
         (series) =>
@@ -498,6 +506,7 @@ function refresh() {
       (t) => t.rank === e.rank && (!e.node || t.node === e.node),
     );
   });
+  items = scopedFindings.filter(e => e.ts < windowEnd && e.ts + e.dur > windowStart);
   if (items.length)
     groups.set("opportunities", {
       label: "Opportunities",
@@ -518,16 +527,19 @@ function refresh() {
       return order.indexOf(a.kind) - order.indexOf(b.kind);
     });
   $("issues").replaceChildren();
-  $("issueCount").textContent = items.length;
-  renderIssueGroups(items);
-  if (!items.length)
+  const [from, to] = analysisInterval();
+  const selectedItems = scopedFindings.filter(e => e.ts < to && e.ts + e.dur > from);
+  $("issueCount").textContent = selectedItems.length;
+  renderIssueGroups(selectedItems);
+  if (!selectedItems.length)
     $("issues").textContent = "No matching opportunities in this interval.";
   draw();
 }
 function renderIssueGroups(findings) {
+  const [startTime, endTime] = analysisInterval();
   const byType = new Map();
   const inWindow = (e) =>
-    Math.min(windowEnd, e.ts + e.dur) - Math.max(windowStart, e.ts);
+    Math.min(endTime, e.ts + e.dur) - Math.max(startTime, e.ts);
   for (const e of [...findings].sort((a, b) => inWindow(b) - inWindow(a) || a.ts - b.ts)) {
     if (!byType.has(e.name)) byType.set(e.name, []);
     byType.get(e.name).push(e);
@@ -542,6 +554,7 @@ function renderIssueGroups(findings) {
     time.textContent = scope + " · " + fmt(inWindow(e)) + " in selection";
     button.append(time);
     button.onclick = () => {
+      selection = {type:"event", label:"Opportunities", event:e, start:e.ts, end:e.ts + e.dur};
       details(e.name, e);
       setWindow(e.ts - e.dur, e.ts + 2 * e.dur);
     };
@@ -573,6 +586,7 @@ function deviceLabel(c) {
   );
 }
 function resources(hw, mode) {
+  const [startTime, endTime] = analysisInterval();
   const panel = $("rates"),
     root = $("metrics");
   root.replaceChildren();
@@ -603,7 +617,7 @@ function resources(hw, mode) {
     for (const [end, value, start] of c.points) {
       const duration = Math.max(
         0,
-        Math.min(end, windowEnd) - Math.max(start, windowStart),
+        Math.min(end, endTime) - Math.max(start, startTime),
       );
       if (duration > 0) {
         area += duration * value;
@@ -818,6 +832,7 @@ function byteLabel(n) {
   return n + " B";
 }
 function linkMatches(link) {
+  const [from, to] = analysisInterval();
   const node = $("node").value,
     rank = $("rank").value;
   return (
@@ -828,8 +843,8 @@ function linkMatches(link) {
       link.ends.some(
         (e) =>
           e.ts != null &&
-          e.ts <= windowEnd &&
-          e.ts + (e.dur || 0) >= windowStart,
+          e.ts <= to &&
+          e.ts + (e.dur || 0) >= from,
       ))
   );
 }
@@ -1025,11 +1040,12 @@ function roleInScope(node, role) {
   );
 }
 function transferDetails(transfers) {
+  const [startTime, endTime] = analysisInterval();
   const section = $("kvSection"),
     table = $("kvTable");
   table.replaceChildren();
   const records = transfers.filter(
-    (t) => t.ts < windowEnd && t.ts + t.dur > windowStart,
+    (t) => t.ts < endTime && t.ts + t.dur > startTime,
   );
   for (const row of records.slice(0, 12)) {
     const b = document.createElement("button");
@@ -1069,12 +1085,13 @@ function transferDetails(transfers) {
   section.hidden = !table.childElementCount;
 }
 function computeResources(rank) {
+  const [startTime, endTime] = analysisInterval();
   const root = $("metrics");
   for (const t of report.traces) {
     if (!visibleTrace(t)) continue;
     const stats = new Map();
     for (const e of t.events) {
-      if (!e.gemm || e.ts < windowStart || e.ts + e.dur > windowEnd) continue;
+      if (!e.gemm || e.ts < startTime || e.ts + e.dur > endTime) continue;
       const key = e.device + "/" + e.gemm.dtype;
       let g = stats.get(key);
       if (!g) {
@@ -1123,6 +1140,7 @@ function computeResources(rank) {
   }
 }
 function collectiveResources(rank) {
+  const [startTime, endTime] = analysisInterval();
   const root = $("metrics");
   for (const trace of report.traces) {
     if (!visibleTrace(trace)) continue;
@@ -1131,8 +1149,8 @@ function collectiveResources(rank) {
       const op = event.collective;
       if (
         op?.algorithm_GB_s == null ||
-        event.ts < windowStart ||
-        event.ts + op.duration_us > windowEnd
+        event.ts < startTime ||
+        event.ts + op.duration_us > endTime
       )
         continue;
       const key = JSON.stringify([
@@ -1183,13 +1201,14 @@ function setWindow(a, b) {
 }
 function draw() {
   if (!report) return;
-  const w = Math.max(330, Math.floor(canvas.parentElement.clientWidth)),
+  const w = Math.max(1, Math.floor(canvas.clientWidth)),
     height = 34 + rows.length * 32,
     ratio = Math.min(window.devicePixelRatio || 1, 2);
   // Limit the backing store on captures containing many streams.
   const scale = Math.min(ratio, 16000 / Math.max(height, 1));
-  canvas.width = Math.round(w * scale);
-  canvas.height = Math.round(height * scale);
+  const backingWidth = Math.round(w * scale), backingHeight = Math.round(height * scale);
+  if (canvas.width !== backingWidth) canvas.width = backingWidth;
+  if (canvas.height !== backingHeight) canvas.height = backingHeight;
   canvas.style.height = height + "px";
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.fillStyle = "white";
@@ -1272,6 +1291,11 @@ function draw() {
             y + 20,
           );
         }
+        if (selection?.event === e || (selection?.event && selection.event.transfer && selection.event.transfer === e.transfer)) {
+          ctx.strokeStyle = "#101828";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(a, y + 4, Math.max(sw, 2), 23);
+        }
         visible.push({ a, b, e });
         if ($("view").value === "communication" && chosenLink) {
           const member = chosenLink.ends.findIndex((end) =>
@@ -1313,22 +1337,48 @@ function draw() {
     }
     ctx.restore();
   }
+  paintSelection(x, w, height);
   $("range").textContent =
     selectedClock(windowStart) + " – " + selectedClock(windowEnd);
 }
+function eventAt(visible, px) {
+  let nearest;
+  let distance = 3;
+  for (let i = visible.length - 1; i >= 0; i--) {
+    const item = visible[i];
+    const gap = Math.max(item.a - px, px - Math.max(item.a + 1, item.b), 0);
+    if (gap === 0) return item;
+    if (gap < distance) { nearest = item; distance = gap; }
+  }
+  return nearest;
+}
 function selectAt(px, py) {
   const hit = targets.find((t) => py >= t.y && py < t.y + 32);
-  if (!hit) return;
+  if (!hit) return clearSelection();
+  if (px < titleWidth) {
+    if (selection?.type === "area") return toggleAreaTrack(hit.row);
+    resetSelection();
+    details(hit.row.label, {Track: hit.row.label, Type: hit.row.kind, Events: hit.row.events?.length, Samples: hit.row.points?.length});
+    refresh();
+    return;
+  }
   if (hit.points) {
     const ts =
       windowStart +
       ((px - titleWidth) / (canvas.clientWidth - titleWidth - 12)) *
         (windowEnd - windowStart);
     let best = null;
-    for (const p of hit.points)
-      if (!best || Math.abs(p[0] - ts) < Math.abs(best[0] - ts)) best = p;
-    if (best) {
+    let distance = Infinity;
+    for (const p of hit.points) {
+      const start = p.length >= 3 ? p[2] : p[0];
+      const gap = Math.max(start - ts, ts - p[0], 0);
+      if (gap < distance) { best = p; distance = gap; }
+    }
+    if (!best) return clearSelection();
+    {
       const r = hit.row;
+      selection = {type: "sample", label: r.label, point: best, start: best[2] ?? best[0], end: best[0]};
+      refresh();
       details(r.name, {
         Device: r.device,
         Time: fmt(best[0]),
@@ -1346,18 +1396,20 @@ function selectAt(px, py) {
     }
     return;
   }
-  const target = hit.visible.findLast(
-    (t) => px >= t.a && px <= Math.max(t.a + 1, t.b),
-  );
-  const match = target && eventLinks.get(target.e.transfer || target.e);
-  if (match && $("view").value === "communication") {
-    chosenLink = match;
-    refresh();
-  }
-  if (target?.e.collective) {
-    const op = target.e.collective;
+  const target = eventAt(hit.visible, px);
+  if (!target) return clearSelection();
+  inspectEvent(target.e, hit.row.label);
+}
+function inspectEvent(event, label) {
+  selection = {type: "event", label, event, start: event.ts, end: event.ts + event.dur};
+  const match = eventLinks.get(event.transfer || event);
+  if (match && $("view").value === "communication") chosenLink = match;
+  refresh();
+  if (event.collective) {
+    const op = event.collective;
     details(op.op, {
-      Kernel: target.e.original || target.e.name,
+      Track: label,
+      Kernel: event.original || event.name,
       Direction: op.direction,
       "Peer rank": op.peer_rank,
       Group: op.group,
@@ -1374,42 +1426,30 @@ function selectAt(px, py) {
       "Part of a multi-kernel operation": op.part_of_operation,
       Unavailable: op.unavailable,
     });
-  } else if (target)
-    details(displayName(target.e), {
-      ...target.e,
-      ts: fmt(target.e.ts),
-      dur: fmt(target.e.dur),
+  } else
+    details(displayName(event), {
+      Track: label,
+      ...event,
+      ts: fmt(event.ts),
+      dur: fmt(event.dur),
     });
 }
 function loc(ev) {
   const box = canvas.getBoundingClientRect();
   return [ev.clientX - box.left, ev.clientY - box.top];
 }
-canvas.onpointerdown = (e) => {
-  const [x] = loc(e);
-  drag = x;
-  canvas.setPointerCapture(e.pointerId);
-};
-canvas.onpointerup = (e) => {
-  if (drag === null) return;
-  const [x, y] = loc(e),
-    a = drag;
-  drag = null;
-  if (Math.abs(x - a) < 5) {
-    selectAt(x, y);
+let currentView = "overview";
+for (const id of ["view", "depth"]) $(id).onchange = () => {
+  if ($("view").value === "raw") {
+    $("view").value = currentView;
+    openNative();
     return;
   }
-  const toTime = (px) =>
-    windowStart +
-    ((px - titleWidth) / (canvas.clientWidth - titleWidth - 12)) *
-      (windowEnd - windowStart);
-  setWindow(toTime(Math.min(x, a)), toTime(Math.max(x, a)));
+  currentView = $("view").value;
+  clearSelection();
 };
-canvas.onpointercancel = () => {
-  drag = null;
-};
-for (const id of ["view", "depth"]) $(id).onchange = refresh;
 $("node").onchange = () => {
+  resetSelection();
   repopulateRanks();
   if (["rank", "local_utc"].includes($("clock").value))
     $("clock").value = "capture";
@@ -1417,6 +1457,7 @@ $("node").onchange = () => {
   refresh();
 };
 $("rank").onchange = () => {
+  resetSelection();
   if (!$("rank").value && ["rank", "local_utc"].includes($("clock").value))
     $("clock").value = "capture";
   if (
@@ -1445,6 +1486,7 @@ $("names").onchange = () => {
   refresh();
 };
 $("interval").onchange = (e) => {
+  resetSelection();
   if (!e.target.value) {
     setWindow(...bounds);
     return;
@@ -1455,6 +1497,7 @@ $("interval").onchange = (e) => {
 };
 $("fit").onclick = () => {
   $("interval").value = "";
+  resetSelection();
   setWindow(...bounds);
 };
 function zoom(f) {
@@ -1600,6 +1643,12 @@ async function portableFile(file) {
   const data = await unpack(await new Response(stream()).text());
   return data?.schema === "serveutil.report/1" ? data : null;
 }
+async function openOriginalFile() {
+  resetSelection();
+  report = null;
+  document.body.classList.add("empty");
+  await openNative();
+}
 async function openFiles(files) {
   if (!files.length) return;
   const status = document.body.classList.contains("empty")
@@ -1626,7 +1675,7 @@ async function openFiles(files) {
         const data = await importFile(file);
         setOriginals(rawSourcesIn(html));
         if (data) load(data);
-        else await openNative();
+        else await openOriginalFile();
       } catch (err) {
         status.textContent = err.message;
       }
@@ -1678,7 +1727,7 @@ async function openFiles(files) {
     });
   } else {
     if (problem) status.textContent = problem.message;
-    await openNative();
+    await openOriginalFile();
   }
 }
 $("choose").onclick = () => $("file").click();

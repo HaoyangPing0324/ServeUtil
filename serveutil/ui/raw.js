@@ -61,6 +61,7 @@ function setOriginals(sources) {
     option.textContent = src.title;
     nativeSources.append(option);
   }
+  document.getElementById("rawView").hidden = !nativeSources.length || location.protocol === "file:";
   nativeSources.hidden = !nativeSources.length;
   document.getElementById("saveOriginal").hidden = nativeSources.hidden;
 }
@@ -175,7 +176,7 @@ async function openNative(preferredRank = true) {
   if (generation !== nativeGeneration) return;
   if (!base) {
     nativeStatus.textContent =
-      "Open this report with serveutil view or the desktop app for Full Perfetto.";
+      "Open this report with serveutil view or the desktop app to read original tracks.";
     return;
   }
   nativeStatus.textContent = src
@@ -214,7 +215,6 @@ function closeNative() {
   nativePanel.hidden = true;
   document.body.classList.remove("full-trace");
 }
-document.getElementById("fullTrace").onclick = () => openNative();
 document.getElementById("leaveNative").onclick = closeNative;
 nativeSources.onchange = () => openNative(false);
 document.getElementById("saveOriginal").onclick = async () => {

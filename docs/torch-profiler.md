@@ -63,7 +63,7 @@ with serveutil.observe("runs") as run:
         p.wait_for_exports()
 ```
 
-这个入口使用应用构造的原生 profiler，保留其导出方法、活动筛选和 observer。如果应用自行接管后台导出任务，请在退出 `observe` 前等待任务完成。使用需要独占 CUPTI 的原生设备采样时，可设 `include_hbm=False`，其余硬件采样仍随上下文启停。Chrome JSON 可以生成推理视图，二进制 trace 可在 Full Perfetto 中打开。
+这个入口使用应用构造的原生 profiler，保留其导出方法、活动筛选和 observer。如果应用自行接管后台导出任务，请在退出 `observe` 前等待任务完成。使用需要独占 CUPTI 的原生设备采样时，可设 `include_hbm=False`，其余硬件采样仍随上下文启停。Chrome JSON 可以生成推理视图，二进制 trace 可在 原始轨道 中打开。
 
 ## 数据与原生选项
 

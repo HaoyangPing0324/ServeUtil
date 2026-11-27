@@ -19,7 +19,11 @@ def build_site(destination):
     destination.mkdir(parents=True, exist_ok=True)
     source = Path(__file__).resolve().parents[1] / "examples"
     site = source.resolve() != destination.resolve()
-    guides = '<a class="projectDocs" href="index.html">Project guides</a>'
+    guides = (
+        '<a class="projectDocs" href="index.html">Project guides</a>'
+        '<a class="repoIcon" href="https://github.com/HaoyangPing0324/ServeUtil" aria-label="ServeUtil on GitHub">'
+        '<img width="20" height="20" src="assets/github.svg" alt=""></a>'
+    )
     if site:
         for name, _ in EXAMPLES[:2]:
             html = (source / name).read_text(encoding="utf-8")

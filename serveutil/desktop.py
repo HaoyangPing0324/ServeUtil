@@ -35,7 +35,8 @@ def _verify(window):
                 "document.getElementById('nativeSources').options.length > 0"
             ):
                 return True
-            window.evaluate_js("document.getElementById('fullTrace').click(); true")
+            window.evaluate_js("""const view = document.getElementById('view');
+                view.value = 'raw'; view.dispatchEvent(new Event('change')); true""")
         time.sleep(0.1)
     return False
 

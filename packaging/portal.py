@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 THEME = ROOT / "packaging/portal"
 # The same route in each language always refers to the same guide.
 PAGES = {
+    "index": ("index", "Overview", "概览"),
     "start": ("start", "Quick start", "快速开始"),
     "downloads": ("downloads", "Install & download", "安装与下载"),
     "decode": ("recipes/decode", "Decode gaps", "Decode 空档"),
@@ -27,7 +28,7 @@ PAGES = {
     "validation": ("validation", "Model validation", "模型验证"),
 }
 GROUPS = [
-    ("Getting started", "入门", ("start", "downloads")),
+    ("Getting started", "入门", ("index", "start", "downloads")),
     ("Hands-on recipes", "实测教程", ("decode", "bandwidth", "pd")),
     ("Reference", "使用指南", ("torch-profiler", "capture", "viewer-guide", "metrics", "tools", "validation")),
 ]
@@ -55,7 +56,7 @@ def language_pages(site, zh, revision):
             lang=tr("en", "zh-CN"), title=escape(title), root=root, body=body,
             otherlang=tr("zh-CN", "en"), alternate=tr("zh/", "../") + slug + ".html",
             language=tr("简体中文", "English"), viewer=viewer, skip=tr("Skip to content", "跳到正文"),
-            primary=tr("Main navigation", "主导航"), guide=tr("Guides", "指南"),
+            primary=tr("Main navigation", "主导航"), guide=tr("Documentation", "文档"),
             downloads=tr("Downloads", "下载"), launch=tr("Open viewer", "打开查看器"),
         )
         (out / (slug + ".html")).write_text(contents, encoding="utf-8")
@@ -116,18 +117,6 @@ def language_pages(site, zh, revision):
         menu = nav(slug)
         write(slug, tr(en, cn), f'<main class="frame" id="content"><nav class="side">{menu}</nav><details class="mobile-nav"><summary>{tr("Browse guides","浏览指南")}</summary><nav>{menu}</nav></details><article class="article">{article}</article><nav class="toc"><b>{tr("On this page","本页内容")}</b>{"".join(toc)}</nav></main>')
 
-    cards = []
-    for slug, en, cn in [
-        ("decode", "Locate the longest GPU gap in a Qwen3 Decode step.", "在 Qwen3 Decode 的一个 step 中定位最长 GPU 空档。"),
-        ("bandwidth", "Recompute a 0.51% eRDMA reading from both hosts.", "用双机端口实测数据复算 0.51% 的 eRDMA 利用率。"),
-        ("pd", "Follow one KV payload from Prefill to its Decode worker.", "从 Prefill 发送端跟踪一笔 KV 到 Decode worker。"),
-    ]:
-        cards.append(f'<a class="card" href="{slug}.html"><strong>{tr(*PAGES[slug][1:])} ↗</strong><p>{tr(en,cn)}</p></a>')
-    title = tr("Profile LLM inference", "剖析大模型推理")
-    description = tr("Inspect Prefill and Decode across ranks. Read GPU activity, communication and measured bandwidth on one timeline.", "从全局进入单个 rank，在同一条时间轴上查看 Prefill、Decode、GPU 活动、通信与实测带宽。")
-    measured = root + "h20-decode.html" + ("?lang=zh" if zh else "")
-    write("index", title, f'''<main class="home" id="content"><section class="hero"><div><h1>{title}</h1><p>{description}</p><div class="actions"><a class="cta" href="start.html">{tr("Make your first report","生成第一份报告")} →</a><a href="downloads.html">{tr("Download ServeUtil","下载 ServeUtil")}</a></div></div><figure class="preview"><a href="{measured}"><img src="{root}assets/h20-decode.png" alt="{tr("Measured Qwen3 H20 timeline","Qwen3 H20 实测时间线")}"></a><figcaption>Qwen3-0.6B · NVIDIA H20 · <a href="{measured}">{tr("Explore this capture","查看这份采集")} ↗</a></figcaption></figure></section><section><h2>{tr("Guided investigations","实测分析教程")}</h2><div class="cards">{"".join(cards)}</div></section></main>''')
-
 
 def build_docs(site, revision="local"):
     assets = site / "assets"
@@ -135,6 +124,8 @@ def build_docs(site, revision="local"):
     for name in ("wordmark.png", "icon.png", "h20-decode.png"):
         shutil.copyfile(ROOT / "assets" / name, assets / name)
     shutil.copyfile(THEME / "site.css", assets / "docs.css")
+    for asset in ("github.svg", "octicons-LICENSE.txt", "docs.js"):
+        shutil.copyfile(THEME / asset, assets / asset)
     shutil.copyfile(ROOT / "LICENSE", site / "LICENSE.txt")
     examples = site / "examples"
     examples.mkdir(exist_ok=True)

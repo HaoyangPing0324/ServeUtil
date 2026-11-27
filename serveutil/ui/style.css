@@ -358,3 +358,44 @@ body.dragging main { outline: 2px dashed #0a817e; outline-offset: -6px; }
 .link-connector {color:#7857a7;font-weight:700}
 #linkInspector .link-focus {margin-top:10px;font-size:12px}
 header .projectDocs{color:white;text-underline-offset:.2em}header #viewerLanguage{min-width:4.5em}
+
+#inspector {
+  position: fixed; z-index: 4; inset: auto 0 0; padding: 8px clamp(16px,4vw,76px) 12px;
+  background: white; color: #20262c; border-top: 2px solid #446890; box-shadow: 0 -2px 8px #18283815;
+}
+.drawerHead {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px}
+.drawerHead button,#keyHelp {padding:1px 7px;font-size:14px;border:1px solid #ccd2d8;color:#344457}
+#inspector #details {max-height:min(20vh,175px);overflow:auto;line-height:1.5}
+#inspector dl {grid-template-columns:minmax(90px,max-content) minmax(0,1fr);margin:4px 0}
+#inspector dd {white-space:pre-line}
+body.inspecting {padding-bottom:min(28vh,245px)}
+.bottom {grid-template-columns:1fr}
+canvas:focus-visible {outline:2px solid #547eb0;outline-offset:-2px}
+#shortcutDialog {border:1px solid #bac2cc;border-radius:4px;padding:18px 22px;max-width:94vw}
+#shortcutDialog::backdrop {background:#1b263755}
+#shortcutDialog dt {font-family:monospace;color:#293b51}
+.foot {justify-content:flex-start;flex-wrap:wrap;padding:6px 12px}
+.foot #range {margin-right:auto}
+@media(max-width:760px){header {height:auto;min-height:52px;flex-wrap:wrap;gap:6px;padding-block:8px}header label {margin-left:0} .brand {font-size:17px}.controls select{max-width:50vw}}
+#finder {width:min(460px,94vw);padding:16px;border:1px solid #b9c2cd;border-radius:4px}
+#finder::backdrop {background:#18243255}
+#finderInput {width:100%;padding:8px;border:1px solid #a8b6c5;font:inherit}
+#finderResults {max-height:40vh;overflow:auto;margin-top:7px}
+#finderResults button {display:block;width:100%;text-align:left;padding:6px;border:0;border-radius:0}
+#finderResults button:hover,#finderResults button:focus {background:#edf3fa}
+
+/* Neutral controls keep the track colors available for activity types. */
+:root {background:#fafbfc;color:#232b34}
+header {background:#fff;color:#202833;border-bottom:1px solid #d9dfe5;height:auto;min-height:54px;gap:14px}
+header .muted {color:#596470}
+header .projectDocs {color:#245486}
+header .repoIcon {display:inline-flex;align-items:center}
+header .primary {background:#244c72;color:#fff}
+header label {margin-left:0}
+header #viewerLanguage {margin-left:auto}
+.title {padding:18px 0 14px}
+.title h1 {font-size:clamp(22px,2.7vw,31px);letter-spacing:-.03em}
+.chart,.bottom section,#linksSection,#rates,#kvSection {border-color:#d8dde3;border-radius:4px}
+.metric {background:#fafbfc;border-color:#d8dde3}
+.metric strong {color:#283746}
+body.full-trace #inspector {display:none}

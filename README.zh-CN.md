@@ -10,7 +10,7 @@
 
 ServeUtil 面向 PyTorch、vLLM 和 SGLang。打开一次 Decode，先看各个 rank 在什么时候计算、通信或等待，再选中一段 AllReduce，查看消息大小、两端带宽，以及这段传输达到了本机实测参考值的百分之几。
 
-<img src="assets/h20-decode.png" width="100%" alt="Qwen3 在 H20 上的一次 Decode，时间轴下方展示 HBM 读写、Tensor 活跃度和 BF16 GEMM 算力，橙色标记指出 GPU 空档">
+<a href="https://haoyangping0324.github.io/ServeUtil/h20-decode.html?lang=zh"><img src="assets/h20-decode.png" width="100%" alt="Qwen3 在 H20 上的一次 Decode，时间轴下方展示 HBM 读写、Tensor 活跃度和 BF16 GEMM 算力，橙色标记指出 GPU 空档"></a>
 
 ## 在 torch.profiler 和 Perfetto 上增加了什么
 
@@ -19,7 +19,7 @@ ServeUtil 面向 PyTorch、vLLM 和 SGLang。打开一次 Decode，先看各个 
 | `torch.profiler` 录到了算子、CUDA kernel 和拷贝，这段时间硬件实际有多忙？ | 保留原始 trace，在同一时间轴附加设备级采样。按可用后端显示 HBM 读写、PCIe 与 NVLink 收发、节点网口与 RDMA 端口带宽，以及 SM、Tensor 和精度流水线活跃度。 |
 | 看到 58 MB/s，怎样判断它有多高？ | 用同一设备、方向和测量口径的微测结果作为分母。选区卡片同时给出绝对量、利用率和参考负载。有输入形状且能唯一关联到 kernel 的 dense GEMM 还可显示有效 TFLOP/s。 |
 | Perfetto 中有许多嵌套的算子和并行轨道，该从哪里看？ | 默认从 Prefill、Decode 和资源使用看全局，再按节点、rank、算子层级或叶子展开。通信视图可沿配对的 Send/Recv 查看对端，也能查看 PD 分离的 KV 交接证据。 |
-| 哪些区间值得细看？ | 标记重复 GPU 空档、缺少计算重叠的通信、持续带宽压力和可比较的 rank 耗时差异。点击标记查看触发依据。需要原始事件、flow 或 SQL 时，在同一份报告切到 **Full Perfetto**。 |
+| 哪些区间值得细看？ | 标记重复 GPU 空档、缺少计算重叠的通信、持续带宽压力和可比较的 rank 耗时差异。点击标记查看触发依据。需要原始事件、flow 或 SQL 时，在同一份报告切到 **原始轨道**。 |
 
 例如，两台 H20 上的 SGLang TP2 在一次单并发推理的 3.05 秒选区内平均发送约 58.5 MB/s，约为同向 eRDMA 端口实测基线的 0.51%。同一选区 4,469 次完整 AllReduce 中有 3,956 次载荷仅 2 KiB。把消息大小、计算间隔和端口读数放在一起，才能解释这个百分比。[模型与两端计数器实测](docs/validation.md)
 
