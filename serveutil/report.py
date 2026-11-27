@@ -656,6 +656,7 @@ def make_report(path, *, analysis=None):
         status=manifest.get("status"),
         error=manifest.get("error"),
         collection_errors=manifest.get("collection_errors", []),
+        export_warnings=manifest.get("export_warnings", []),
         aligned=common_clock or len(traces) == 1,
         alignment_note=None
         if common_clock

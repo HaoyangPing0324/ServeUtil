@@ -1,6 +1,6 @@
 # PyTorch Profiler 集成
 
-`serveutil.profile` 返回本环境的 `torch.profiler.profile` 实例。使用 `with` 或手工调用 `start()`、`step()`、`stop()` 均可。每次运行的 `p.serveutil_directory` 包含原始 Kineto trace、硬件采样和交互报告。以下代码在 CPU 上也能运行。
+`serveutil.profile` 返回本环境的 `torch.profiler.profile` 实例。函数签名列出本机 PyTorch 支持的参数。两个采集周期之间可以替换或清空 `p.on_trace_ready`。使用 `with` 或手工调用 `start()`、`step()`、`stop()` 均可。每次运行的 `p.serveutil_directory` 包含原始 Kineto trace、硬件采样和交互报告。以下代码在 CPU 上也能运行。
 
 ```python
 import torch
@@ -92,4 +92,6 @@ PyTorch 2.10 和 2.15 的默认 Kineto writer 在字符串 metadata 含内嵌引
 
 也可以使用 `from serveutil import profiler`，由同一命名空间调用当前 PyTorch 的 `schedule`、`record_function` 等辅助 API。使用 `profiler.profile(...)` 得到原生 profiler 实例，可直接调用 `step()`。
 
-在已验证的 PyTorch 2.15 Cuspy 后端上，默认采集会保留同一窗口的原生 JSON 和二进制编码。在 `stop()` 后仍可导出 `.pftrace`，也可在查看器的来源列表中选择二进制文件。两份编码使用同一组 GPU 记录，额外开销是编码时间和磁盘空间。
+在已验证的 PyTorch 2.15 Cuspy 后端上，默认导出以及在回调内完成的自定义导出，都会保留同一窗口的原生 JSON 和二进制编码。回调移动或删除自己的文件后，采集目录仍保留原件。在 `stop()` 后仍可导出 `.pftrace`，也可在查看器的来源列表中选择二进制文件。两份编码使用同一组 GPU 记录，额外开销是编码时间和磁盘空间。
+
+回调通过 `take_pending_cuspy_export()` 将写入移交给其他线程时，在该线程调用原生 `join()` 即可。等待写入期间状态为 `exporting`，所有周期写完后自动生成报告。各周期可以乱序完成。

@@ -5,6 +5,7 @@ import json
 import os
 import socket
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -42,6 +43,7 @@ class Capture:
         )
         self.path.mkdir()
         (self.path / "traces").mkdir()
+        self._lock = threading.RLock()
         self.manifest = dict(
             schema="serveutil.capture/1",
             engine=engine,
@@ -53,22 +55,53 @@ class Capture:
         self.save()
 
     def save(self):
-        write_json(self.path / "capture.json", self.manifest)
+        with self._lock:
+            write_json(self.path / "capture.json", self.manifest.copy())
 
-    def add_trace(self, path, rank=None, *, activities=None):
-        trace = {"file": str(path.relative_to(self.path)), "rank": rank}
+    def warn_export(self, path, error):
+        with self._lock:
+            self.manifest.setdefault("export_warnings", []).append(
+                {"file": path.name, "error": str(error)}
+            )
+
+    def add_trace(self, path, rank=None, *, activities=None, **metadata):
+        trace = {"file": str(path.relative_to(self.path)), "rank": rank, **metadata}
         if activities is not None:
             trace["activities"] = sorted(activities)
-        self.manifest["traces"].append(trace)
-        self.save()
+        with self._lock:
+            self.manifest["traces"].append(trace)
+            self.save()
+        return trace
 
-    def finish(self, error=None):
-        self.manifest["ended_ns"] = time.time_ns()
-        self.manifest["status"] = "failed" if error else "complete"
-        if error:
-            self.manifest["error"] = str(error)
+    def complete_export(self, entry, path, binary, error=None):
+        """Publish a caller-owned deferred export when its native writer finishes."""
+        with self._lock:
+            entry.pop("pending", None)
+            if error is not None:
+                entry["export_error"] = str(error)
+                self.manifest.update(status="failed", error=str(error))
+            elif path.exists() and binary.exists():
+                entry["native_binary"] = str(binary.relative_to(self.path))
+            elif binary.exists():
+                entry.update(file=str(binary.relative_to(self.path)), native_output=True)
+            if self.manifest["status"] == "exporting":
+                self._finish_exports()
+            else:
+                self.save()
+
+    def _finish_exports(self):
+        if self.manifest["status"] != "failed":
+            pending = any(t.get("pending") for t in self.manifest["traces"])
+            self.manifest["status"] = "exporting" if pending else "complete"
         self.save()
-        if error is None and self.manifest["traces"]:
+        if self.manifest["status"] == "complete" and self.manifest["traces"]:
             from .report import make_report
 
             write_json(self.path / "report.json", make_report(self.path))
+
+    def finish(self, error=None):
+        with self._lock:
+            self.manifest["ended_ns"] = time.time_ns()
+            if error is not None:
+                self.manifest.update(status="failed", error=str(error))
+            self._finish_exports()

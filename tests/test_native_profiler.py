@@ -98,6 +98,8 @@ class NativeProfilerTests(unittest.TestCase):
                 [gzip.decompress(f.read_bytes()) for f in tensorboard], data
             )
             p.export_chrome_trace(str(root / "again.json.gz"))
+            self.assertEqual(inspect.signature(p.export_chrome_trace),
+                             inspect.signature(type(p).export_chrome_trace.__get__(p)))
             self.assertEqual(
                 gzip.decompress((root / "again.json.gz").read_bytes()), data[-1]
             )
@@ -161,6 +163,38 @@ class NativeProfilerTests(unittest.TestCase):
             if name != "profile":
                 self.assertIs(getattr(profiler, name), getattr(torch.profiler, name))
         self.assertIs(profiler.profile, serveutil.profile)
+        accepted = inspect.signature(serveutil.profile).parameters
+        for name, param in inspect.signature(torch.profiler.profile).parameters.items():
+            self.assertEqual(accepted[name], param)
+
+    def test_callback_can_change_between_saved_steps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            called = []
+            def first(p):
+                called.append(("first", p.step_num))
+                p.on_trace_ready = second
+
+            def second(p):
+                called.append(("second", p.step_num))
+                p.on_trace_ready = None
+
+            p = serveutil.profile(tmp, activities=[torch.profiler.ProfilerActivity.CPU],
+                                  schedule=torch.profiler.schedule(wait=0, warmup=0, active=1, repeat=3))
+            self.assertIsNone(p.on_trace_ready)
+            p.on_trace_ready = first
+            with p:
+                for step in range(3):
+                    with torch.profiler.record_function(f"cycle-{step}"):
+                        torch.ones(2) + 1
+                    p.step()
+            self.assertEqual(called, [("first", 1), ("second", 2)])
+            self.assertIsNone(p.on_trace_ready)
+            manifest = json.loads((p.serveutil_directory / "capture.json").read_text())
+            self.assertEqual(len(manifest["traces"]), 3)
+            for i, entry in enumerate(manifest["traces"]):
+                with gzip.open(p.serveutil_directory / entry["file"], "rt") as stream:
+                    events = json.load(stream)["traceEvents"]
+                self.assertIn(f"cycle-{i}", [event.get("name") for event in events])
 
     def test_native_cpu_results(self):
         for instrumented in (False, True):
@@ -310,6 +344,40 @@ class NativeProfilerTests(unittest.TestCase):
             capture.finish()
             self.assertTrue((capture.path / "report.json").exists())
 
+    def test_native_binary_survives_unavailable_companion_encoding(self):
+        from threading import Lock
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from serveutil.bundle import Capture
+        from serveutil.recording import _preserve_cuspy_format
+
+        with tempfile.TemporaryDirectory() as tmp:
+            capture = Capture(tmp, "torch")
+            target = Path(tmp) / "caller.pftrace.gz"
+            raw = b"native output"
+            window = dict(built={}, out=str(target), cpu="cpu.json")
+            def write(window_id):
+                windows.pop(window_id)
+                target.write_bytes(raw)
+            windows = {1: window}
+            observer = SimpleNamespace(_windows=windows, _lock=Lock(), _maybe_write=write,
+                                       _pftrace_compression_level=1)
+            prof = SimpleNamespace(_cuspy_profiler_observer=observer, _cuspy_window_id=1)
+            binary = capture.path / "traces" / "cycle.pftrace.gz"
+            companion = binary.with_name("cycle.json.gz")
+            encoder = Mock(side_effect=ValueError("unavailable companion"))
+            with patch.dict(sys.modules, {"torch.profiler._cuspy.trace": SimpleNamespace(
+                    merge_trace_window_into_chrome_trace=encoder)}):
+                with _preserve_cuspy_format(capture, prof, companion, binary):
+                    observer._maybe_write(1)
+                    target.unlink()
+            self.assertEqual(binary.read_bytes(), raw)
+            self.assertFalse(companion.exists())
+            self.assertIs(observer._maybe_write, write)
+            self.assertEqual(capture.manifest["export_warnings"], [
+                {"file": companion.name, "error": "unavailable companion"}
+            ])
+
     @unittest.skipUnless(
         torch is not None and torch.cuda.is_available() and hasattr(torch.profiler, "CuspyConfig"),
         "requires the native Cuspy CUDA backend",
@@ -341,6 +409,75 @@ class NativeProfilerTests(unittest.TestCase):
             recorder.export_chrome_trace(str(root / "last.json.gz"))
             trace = json.loads(gzip.decompress((root / "last.json.gz").read_bytes()))
             self.assertTrue(any(e.get("cat") == "kernel" for e in trace["traceEvents"]))
+
+            # A user writer can consume its temporary output before returning.
+            # The capture must keep that native file and the alternate encoding.
+            written = []
+
+            def consume(prof):
+                name = "callback.json.gz" if written else "callback.pftrace.gz"
+                target = root / name
+                prof.export_chrome_trace(str(target))
+                prof.wait_for_exports()
+                written.append(target.read_bytes())
+                target.unlink()
+
+            with serveutil.profile(root, activities=activities, calibration=False,
+                                   schedule=torch.profiler.schedule(wait=0, warmup=0, active=1, repeat=2),
+                                   on_trace_ready=consume) as recorder:
+                for step in range(2):
+                    self.workload(step, "cuda")
+                    recorder.step()
+            capture = recorder.serveutil_directory
+            entries = json.loads((capture / "capture.json").read_text())["traces"]
+            self.assertEqual(len(entries), 2)
+            for i, entry in enumerate(entries):
+                self.assertEqual((capture / entry["file" if i else "native_binary"]).read_bytes(), written[i])
+                for field in ("file", "native_binary"):
+                    self.assertIn(f"batch-{i}".encode(), gzip.decompress((capture / entry[field]).read_bytes()))
+
+    @unittest.skipUnless(
+        torch is not None and torch.cuda.is_available()
+        and hasattr(torch.profiler.profile, "take_pending_cuspy_export"),
+        "requires detached native CUDA exports",
+    )
+    def test_caller_can_finalize_detached_windows_in_reverse_order(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        if self.run_in_fresh_process():
+            return
+        cpu, cuda = torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA
+        config = torch.profiler.ProfilerActivityConfig(profiler_configs=[torch.profiler.CuspyConfig()])
+        pending = []
+        with tempfile.TemporaryDirectory() as tmp:
+            def detach(prof):
+                target = Path(tmp) / ("first.pftrace.gz" if not pending else "second.json.gz")
+                prof.export_chrome_trace(str(target))
+                pending.append((prof.take_pending_cuspy_export(), target))
+
+            with serveutil.profile(tmp, activities=[cpu, {cuda: config}], calibration=False,
+                    schedule=torch.profiler.schedule(wait=0, warmup=0, active=1, repeat=2),
+                    experimental_config=torch._C._profiler._ExperimentalConfig(
+                        custom_profiler_config='{"cuspy_async_export":true}'),
+                    on_trace_ready=detach) as prof:
+                for i in range(2):
+                    self.workload(i, "cuda")
+                    prof.step()
+            capture = prof.serveutil_directory
+            with ThreadPoolExecutor(1) as worker:
+                for writer, target in reversed(pending):
+                    self.assertIsNotNone(writer)
+                    worker.submit(writer.join, force=False, timeout_s=0.2).result()
+            manifest = json.loads((capture / "capture.json").read_text())
+            self.assertEqual(manifest["status"], "complete")
+            self.assertEqual(len(manifest["traces"]), len(pending))
+            self.assertTrue((capture / "report.json").is_file())
+            for i, (record, (_, target)) in enumerate(zip(manifest["traces"], pending)):
+                self.assertNotIn("pending", record)
+                field = "file" if i else "native_binary"
+                self.assertEqual((capture / record[field]).read_bytes(), target.read_bytes())
+                for field in ("file", "native_binary"):
+                    self.assertIn(f"batch-{i}".encode(), gzip.decompress((capture / record[field]).read_bytes()))
 
     def test_manual_start_stop_default_and_wait_only(self):
         with tempfile.TemporaryDirectory() as tmp:

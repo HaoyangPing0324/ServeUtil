@@ -6,6 +6,13 @@ __all__ = ["export", "kernel_label", "profile", "trace_handler", "instrument", "
 
 
 def __getattr__(name):
+    if name == "profile":
+        from importlib.util import find_spec
+
+        if find_spec("torch") is not None:
+            from .profiler import profile
+
+            return profile
     if name in {"profile", "trace_handler", "instrument", "observe"}:
         from . import recording
 

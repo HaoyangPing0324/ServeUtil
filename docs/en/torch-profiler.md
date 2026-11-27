@@ -1,6 +1,6 @@
 # Record with PyTorch Profiler
 
-Use `serveutil.profile` in the same environment as your model. It returns a native `torch.profiler.profile` instance. Use the context manager or call `start()`, `step()` and `stop()` yourself.
+Use `serveutil.profile` in the same environment as your model. It returns a native `torch.profiler.profile` instance. Its Python signature includes the installed PyTorch options. You can replace or clear `prof.on_trace_ready` between saved steps. Use the context manager or call `start()`, `step()` and `stop()` yourself.
 
 ```python
 import torch
@@ -54,4 +54,6 @@ Native schedules, shape recording, memory, stacks, FLOP estimates, execution gra
 
 Tested combinations include CPU PyTorch 2.10 and 2.15 and H20 CUDA builds of 2.13 and 2.15. On the tested 2.13 build, recording only CPU first can leave later GPU windows without kernels, including with native PyTorch alone. Record CUDA in a fresh process in that case. The report flags missing device events and individually damaged JSON cycles. On 2.15, native Cuspy synchronous, asynchronous and binary exports were exercised. Native directional PM sampling was tested with CUPTI 13.4.92. The tested 13.2.2 runtime was below Cuspy's requirement. [Metrics and reference workloads](metrics.md)
 
-On the tested PyTorch 2.15 Cuspy backend, a capture with the default writer retains both native encodings of each completed window. You can request a `.pftrace` after `stop()` or select the binary in the viewer’s source list. Both encodings use the same GPU observations. Keeping both adds encoding time and disk space.
+On the tested PyTorch 2.15 Cuspy backend, the default writer and callbacks that complete a native export during the callback retain both encodings of the same window. The capture keeps a copy even if your callback moves or deletes its output. You can request a `.pftrace` after `stop()` or select the binary in the viewer’s source list. Both encodings use the same GPU observations. Keeping both adds encoding time and disk space.
+
+If a callback transfers an asynchronous writer with `take_pending_cuspy_export()`, finish it with its native `join()`. The capture shows `exporting` while writes are pending and creates the report once every writer finishes. Writers may finish in any order.

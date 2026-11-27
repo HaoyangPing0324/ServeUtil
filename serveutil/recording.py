@@ -6,11 +6,12 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import weakref
 from collections.abc import Mapping
 from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
-from types import MethodType
 
 from .bundle import Capture, write_json
 
@@ -30,8 +31,8 @@ def _result(profiler):
 
 
 @contextmanager
-def _preserve_cuspy_format(profiler, destination):
-    """Encode the native binary from the same finalized window as the JSON.
+def _preserve_cuspy_format(capture, profiler, json_path, binary):
+    """Archive both native encodings from one finalized window.
 
     The Cuspy writer discards its CPU snapshot and GPU columns on first export.
     Its finalizer runs on the exporting thread. Observe just this instance and
@@ -39,32 +40,73 @@ def _preserve_cuspy_format(profiler, destination):
     """
     observer = getattr(profiler, "_cuspy_profiler_observer", None)
     finalize = getattr(observer, "_maybe_write", None)
+    deferred = {}
     if finalize is None:
-        yield
+        yield deferred
         return
     from torch.profiler._cuspy.trace import merge_trace_window_into_chrome_trace
 
-    def finalize_formats(window_id):
-        with observer._lock:
-            window = observer._windows.get(window_id)
-            ready = window and window["built"] is not None and window["out"] is not None
-            inputs = (window["cpu"], window["built"]) if ready else None
-        if inputs is not None:
-            merge_trace_window_into_chrome_trace(
-                inputs[0], destination, inputs[1], trace_name=str(destination),
-                pftrace_compression_level=observer._pftrace_compression_level,
-            )
-        return finalize(window_id)
-
+    selected_window = profiler._cuspy_window_id
+    gate = threading.RLock()
     previous = vars(observer).get("_maybe_write")
-    observer._maybe_write = finalize_formats
-    try:
-        yield
-    finally:
+
+    def restore():
         if previous is None:
             del observer._maybe_write
         else:
             observer._maybe_write = previous
+
+    def finalize_formats(window_id):
+        if window_id != selected_window:
+            return finalize(window_id)
+        # set_export runs on the training thread. A detached observer can join
+        # on a different thread, even after its profiler has moved to a new cycle.
+        with gate:
+            with observer._lock:
+                window = observer._windows.get(window_id)
+                if not window or window["built"] is None or window["out"] is None:
+                    return
+                cpu, built, output = window["cpu"], window["built"], Path(window["out"])
+            primary, companion = (binary, json_path) if ".pftrace" in str(output) else (json_path, binary)
+            try:
+                try:
+                    merge_trace_window_into_chrome_trace(
+                        cpu, companion, built, trace_name=str(companion),
+                        pftrace_compression_level=observer._pftrace_compression_level,
+                    )
+                except Exception as exc:
+                    companion.unlink(missing_ok=True)
+                    capture.warn_export(companion, exc)
+                result = finalize(window_id)
+                if output.resolve() != primary.resolve():
+                    shutil.copyfile(output, primary)
+            except BaseException as exc:
+                if deferred:
+                    capture.complete_export(deferred["entry"], json_path, binary, exc)
+                raise
+            else:
+                if deferred:
+                    capture.complete_export(deferred["entry"], json_path, binary)
+                return result
+            finally:
+                if deferred:
+                    restore()
+
+    observer._maybe_write = finalize_formats
+    try:
+        yield deferred
+    finally:
+        with gate:
+            with observer._lock:
+                window = observer._windows.get(selected_window)
+                pending = window is not None and window["out"] is not None
+            if pending and profiler._cuspy_profiler_observer is not observer:
+                deferred["entry"] = capture.add_trace(
+                    json_path, os.getenv("RANK", "0"), pending=True,
+                    activities=[activity.name for activity in profiler.activities],
+                )
+            else:
+                restore()
 
 
 def _export_cycle(capture, profiler):
@@ -80,15 +122,16 @@ def _export_cycle(capture, profiler):
     binary = path.with_suffix("").with_suffix(".pftrace.gz")
     previous = getattr(profiler, "_serveutil_result", None)
     if previous is not None and previous() is result:
-        shutil.copyfile(profiler._serveutil_archive, path)
-        if profiler._serveutil_binary is not None:
+        if profiler._serveutil_archive.is_file():
+            shutil.copyfile(profiler._serveutil_archive, path)
+        if profiler._serveutil_binary.is_file():
             shutil.copyfile(profiler._serveutil_binary, binary)
     else:
         with tempfile.TemporaryDirectory(dir=path.parent) as tmp:
             raw = Path(tmp) / "kineto.json"
             if getattr(profiler, "_use_cuspy", False):
                 # This backend always writes gzip and may complete its export asynchronously.
-                with _preserve_cuspy_format(profiler, binary):
+                with _preserve_cuspy_format(capture, profiler, path, binary):
                     native_export(str(path))
                     profiler.wait_for_exports()
                 if not path.exists():
@@ -104,18 +147,34 @@ def _export_cycle(capture, profiler):
                     gzip.open(path, "wb", compresslevel=3) as dst,
                 ):
                     shutil.copyfileobj(src, dst)
-    capture.add_trace(
-        path, rank, activities=[activity.name for activity in profiler.activities]
-    )
+    _register_export(capture, profiler, path, binary, native_export, result)
+
+
+def _register_export(capture, profiler, path, binary, native_export, result):
     profiler.serveutil_directory = capture.path
+    primary = path if path.exists() else binary
+    metadata = {}
+    if primary == binary:
+        metadata["native_output"] = True
+    elif binary.exists():
+        metadata["native_binary"] = str(binary.relative_to(capture.path))
+    capture.add_trace(primary, os.getenv("RANK", "0"),
+                      activities=[activity.name for activity in profiler.activities], **metadata)
+    _bind_export(profiler, path, binary, native_export, result)
+
+
+def _bind_export(profiler, path, binary, native_export, result, entry=None):
+    profiler._serveutil_deferred_entry = entry
     profiler._serveutil_native_export = native_export
     profiler._serveutil_archive = path
-    profiler._serveutil_binary = binary if binary.exists() else None
-    if profiler._serveutil_binary:
-        capture.manifest["traces"][-1]["native_binary"] = str(binary.relative_to(capture.path))
-        capture.save()
+    profiler._serveutil_binary = binary
     profiler._serveutil_result = weakref.ref(result)
-    profiler.export_chrome_trace = MethodType(_export_saved, profiler)
+
+    @wraps(native_export)
+    def export(*args, **kwargs):
+        return _export_saved(profiler, *args, **kwargs)
+
+    profiler.export_chrome_trace = export
 
 
 def _export_saved(profiler, *args, **kwargs):
@@ -134,9 +193,12 @@ def _export_saved(profiler, *args, **kwargs):
     ):
         options.pop("default_stream", None)
     cuspy = getattr(profiler, "_use_cuspy", False)
-    wants_binary = cuspy and str(dest).endswith((".pftrace", ".pftrace.gz"))
+    wants_binary = cuspy and ".pftrace" in str(dest)
+    source = profiler._serveutil_binary if wants_binary else profiler._serveutil_archive
+    pending = profiler._serveutil_deferred_entry
     if (
-        (wants_binary and profiler._serveutil_binary is None)
+        (pending is not None and (pending.get("pending") or pending.get("export_error")))
+        or not source.is_file()
         or _result(profiler) is not profiler._serveutil_result()
         or not cuspy and any(
             value != signature.parameters[name].default
@@ -147,7 +209,6 @@ def _export_saved(profiler, *args, **kwargs):
         return native(*args, **kwargs)
     if cuspy and not str(dest).endswith(".gz"):
         dest = str(dest) + ".gz"
-    source = profiler._serveutil_binary if wants_binary else profiler._serveutil_archive
     dest = Path(dest)
     if source.resolve() == dest.resolve():
         return
@@ -159,18 +220,19 @@ def _export_saved(profiler, *args, **kwargs):
 
 
 def _complete_cycle(capture, profiler, callback):
-    if not getattr(profiler, "_use_cuspy", False) or callback is None:
+    if not callback:
+        return _export_cycle(capture, profiler)
+    if not getattr(profiler, "_use_cuspy", False):
         _export_cycle(capture, profiler)
-        if callback is not None:
-            callback(profiler)
-        return
+        return callback(profiler)
 
     # Cuspy hands each window to one writer. Give the caller first choice of
     # format and preserve its native export instead of consuming the window.
     destinations = []
-    native_export = profiler.export_chrome_trace
+    native_export = getattr(profiler, "_serveutil_native_export", profiler.export_chrome_trace)
     previous = vars(profiler).get("export_chrome_trace")
 
+    @wraps(native_export)
     def export(*args, **kwargs):
         path = inspect.signature(native_export).bind(*args, **kwargs).arguments["path"]
         result = native_export(*args, **kwargs)
@@ -180,18 +242,30 @@ def _complete_cycle(capture, profiler, callback):
         return result
 
     profiler.serveutil_directory = capture.path
+    index = len(capture.manifest["traces"])
+    stem = f"rank-{os.getenv('RANK', '0')}-cycle-{index}"
+    path = capture.path / "traces" / (stem + ".json.gz")
+    binary = path.with_suffix("").with_suffix(".pftrace.gz")
     profiler.export_chrome_trace = export
     try:
-        callback(profiler)
+        with _preserve_cuspy_format(capture, profiler, path, binary) as deferred:
+            callback(profiler)
+            if destinations:
+                profiler.wait_for_exports()
     finally:
         if previous is None:
             del profiler.export_chrome_trace
         else:
             profiler.export_chrome_trace = previous
+    if deferred:
+        _bind_export(profiler, path, binary, native_export, _result(profiler), deferred["entry"])
+        return
     if not destinations:
         _export_cycle(capture, profiler)
         return
-    profiler.wait_for_exports()
+    if path.is_file() or binary.is_file():
+        _register_export(capture, profiler, path, binary, native_export, _result(profiler))
+        return
     for source in dict.fromkeys(destinations):
         if not source.is_file():
             capture.manifest["note"] = (
@@ -397,17 +471,24 @@ def profile(
     from .telemetry import TelemetrySampler
 
     selected = _configure(torch, devices, metrics, profiler_kwargs)
-    user_callback = profiler_kwargs.pop("on_trace_ready", None)
     capture = sampler = None
 
-    def ready(profiler):
+    profiler = torch.profiler.profile(**profiler_kwargs)
+
+    def save_cycle():
         try:
-            _complete_cycle(capture, profiler, user_callback)
+            _complete_cycle(capture, profiler, profiler.on_trace_ready)
         except BaseException as exc:
             _failed_callback(profiler, capture, exc)
             raise
 
-    profiler = torch.profiler.profile(on_trace_ready=ready, **profiler_kwargs)
+    # The native scheduler binds its methods during construction. Attach the
+    # archive to the saved-cycle action so callers can replace or clear their
+    # callback between steps just as they can on a native profiler.
+    for actions in profiler.action_map.values():
+        for index, action in enumerate(actions):
+            if action == profiler._trace_ready:
+                actions[index] = save_cycle
     native_start, native_stop = profiler.start, profiler.stop
 
     def start():
