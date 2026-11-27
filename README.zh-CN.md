@@ -5,7 +5,7 @@
   <a href="https://github.com/HaoyangPing0324/ServeUtil/actions/workflows/desktop.yml"><img alt="Desktop and web CI" src="https://github.com/HaoyangPing0324/ServeUtil/actions/workflows/desktop.yml/badge.svg"></a>
   <a href="#安装"><img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-3776AB"></a>
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-337b57"></a>
-  <a href="https://haoyangping0324.github.io/ServeUtil/zh/capture.html"><img alt="PyTorch · vLLM · SGLang" src="https://img.shields.io/badge/inference-PyTorch%20%C2%B7%20vLLM%20%C2%B7%20SGLang-14695c"></a>
+  <a href="https://haoyangping0324.github.io/ServeUtil/zh/capture.html"><img alt="PyTorch · vLLM · SGLang" src="assets/engines.svg"></a>
 </p>
 
 ServeUtil 面向 PyTorch、vLLM 和 SGLang。打开一次 Decode，先看各个 rank 在什么时候计算、通信或等待，再选中一段 AllReduce，查看消息大小、两端带宽，以及这段传输达到了本机实测参考值的百分之几。

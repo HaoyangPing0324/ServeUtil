@@ -1,5 +1,5 @@
 include README.md README.zh-CN.md
 include packaging/PYPI.md packaging/vendor_perfetto.py
-recursive-include assets *.png
+recursive-include assets *.png *.svg
 recursive-include docs *.md
 recursive-include examples *.html *.json

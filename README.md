@@ -5,7 +5,7 @@
   <a href="https://github.com/HaoyangPing0324/ServeUtil/actions/workflows/desktop.yml"><img alt="Desktop and web CI" src="https://github.com/HaoyangPing0324/ServeUtil/actions/workflows/desktop.yml/badge.svg"></a>
   <a href="#installation"><img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-3776AB"></a>
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-337b57"></a>
-  <a href="https://haoyangping0324.github.io/ServeUtil/capture.html"><img alt="PyTorch · vLLM · SGLang" src="https://img.shields.io/badge/inference-PyTorch%20%C2%B7%20vLLM%20%C2%B7%20SGLang-14695c"></a>
+  <a href="https://haoyangping0324.github.io/ServeUtil/capture.html"><img alt="PyTorch · vLLM · SGLang" src="assets/engines.svg"></a>
 </p>
 
 ServeUtil combines PyTorch, vLLM and SGLang traces with GPU and network counters. Select a Decode interval to see which ranks were computing, which were waiting on communication and how the measured bandwidth compares with a reference from the same hardware.
