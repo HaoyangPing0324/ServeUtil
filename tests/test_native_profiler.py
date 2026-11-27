@@ -167,6 +167,44 @@ class NativeProfilerTests(unittest.TestCase):
         for name, param in inspect.signature(torch.profiler.profile).parameters.items():
             self.assertEqual(accepted[name], param)
 
+    def test_native_class_api_and_subclass_lifecycle(self):
+        from serveutil import profiler
+
+        native = torch.profiler.profile
+        self.assertTrue(inspect.isclass(profiler.profile))
+        for name in dir(native):
+            if not name.startswith("_"):
+                self.assertIs(getattr(profiler.profile, name), getattr(native, name))
+        self.assertTrue(issubclass(profiler.profile, native))
+        self.assertIsInstance(native(), profiler.profile)
+        self.assertNotIsInstance(object(), profiler.profile)
+        for name, param in inspect.signature(native.__init__).parameters.items():
+            self.assertEqual(inspect.signature(profiler.profile.__init__).parameters[name], param)
+
+        class NamedProfiler(profiler.profile):
+            def __init__(self, label, output):
+                self.label = label
+                super().__init__(output, activities=[torch.profiler.ProfilerActivity.CPU])
+
+            def step(self):
+                self.steps_seen = getattr(self, "steps_seen", 0) + 1
+                return super().step()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with NamedProfiler("projection", tmp) as recorder:
+                with profiler.record_function(recorder.label):
+                    torch.ones(4).sum()
+                recorder.step()
+            self.assertIs(type(recorder), NamedProfiler)
+            self.assertIsInstance(recorder, profiler.profile)
+            self.assertNotIsInstance(native(), NamedProfiler)
+            self.assertEqual(recorder.steps_seen, 1)
+            self.assertIn("projection", {row.key for row in recorder.key_averages()})
+            capture = recorder.serveutil_directory
+            entry, = json.loads((capture / "capture.json").read_text())["traces"]
+            with gzip.open(capture / entry["file"], "rt") as f:
+                self.assertIn("projection", {e.get("name") for e in json.load(f)["traceEvents"]})
+
     def test_callback_can_change_between_saved_steps(self):
         with tempfile.TemporaryDirectory() as tmp:
             called = []
@@ -478,6 +516,28 @@ class NativeProfilerTests(unittest.TestCase):
                 self.assertEqual((capture / record[field]).read_bytes(), target.read_bytes())
                 for field in ("file", "native_binary"):
                     self.assertIn(f"batch-{i}".encode(), gzip.decompress((capture / record[field]).read_bytes()))
+
+    def test_low_level_trace_windows_keep_native_callback_semantics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = serveutil.profile(tmp, activities=[torch.profiler.ProfilerActivity.CPU],
+                                  on_trace_ready=lambda _: self.fail("unscheduled callback"))
+            runs = set()
+            for step in range(2):
+                p.prepare_trace()
+                p.start_trace()
+                self.workload(step, "cpu")
+                p.stop_trace()
+                capture = p.serveutil_directory
+                runs.add(capture)
+                manifest = json.loads((capture / "capture.json").read_text())
+                self.assertEqual(manifest["status"], "complete")
+                entry, = manifest["traces"]
+                archived = gzip.decompress((capture / entry["file"]).read_bytes())
+                target = Path(tmp) / "user.json"
+                p.export_chrome_trace(str(target))
+                self.assertEqual(target.read_bytes(), archived)
+                self.assertIn(f"batch-{step}", {r.get("name") for r in json.loads(archived)["traceEvents"]})
+            self.assertEqual(len(runs), 2)
 
     def test_manual_start_stop_default_and_wait_only(self):
         with tempfile.TemporaryDirectory() as tmp:

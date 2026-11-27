@@ -457,7 +457,15 @@ def observe(
     capture.finish()
 
 
-def profile(
+def profile(*args, **kwargs):
+    """Load the native profiler class when an application starts recording."""
+    from .profiler import profile as native_recorder
+
+    return native_recorder(*args, **kwargs)
+
+
+def _record_profile(
+    create_profiler,
     output="serveutil-runs",
     *,
     devices=None,
@@ -473,7 +481,7 @@ def profile(
     selected = _configure(torch, devices, metrics, profiler_kwargs)
     capture = sampler = None
 
-    profiler = torch.profiler.profile(**profiler_kwargs)
+    profiler = create_profiler(**profiler_kwargs)
 
     def save_cycle():
         try:
@@ -490,11 +498,14 @@ def profile(
             if action == profiler._trace_ready:
                 actions[index] = save_cycle
     native_start, native_stop = profiler.start, profiler.stop
+    native_start_trace, native_stop_trace = profiler.start_trace, profiler.stop_trace
+    direct_window = False
 
-    def start():
-        nonlocal capture, sampler
+    def begin(operation):
+        nonlocal capture, sampler, direct_window
         if sampler is not None:
             raise RuntimeError("ServeUtil profiler is already recording")
+        direct_window = operation is native_start_trace
         capture = Capture(output, "torch")
         profiler.serveutil_directory = capture.path
         try:
@@ -506,7 +517,7 @@ def profile(
                 interval_ms=interval_ms,
                 include_hbm=_independent_hbm(torch, profiler_kwargs),
             ).start()
-            return native_start()
+            return operation()
         except BaseException as exc:
             if sampler is not None:
                 capture.manifest["telemetry"] = sampler.stop()
@@ -514,16 +525,19 @@ def profile(
             capture.finish(exc)
             raise
 
-    def stop():
+    def finish(operation):
         nonlocal sampler
         if sampler is None:
-            return native_stop()
+            return operation()
         active, sampler = sampler, None
         try:
             try:
-                result = native_stop()
+                result = operation()
             finally:
                 capture.manifest["telemetry"] = active.stop()
+            if operation is native_stop_trace:
+                # PyTorch's low-level pair has no scheduler or ready callback.
+                _export_cycle(capture, profiler)
             if capture.manifest["status"] == "recording":
                 capture.finish()
             else:
@@ -535,7 +549,28 @@ def profile(
                 profiler.execution_trace_observer.cleanup()
             raise
 
+    @wraps(native_start)
+    def start():
+        return begin(native_start)
+
+    @wraps(native_stop)
+    def stop():
+        return finish(native_stop)
+
+    @wraps(native_start_trace)
+    def start_trace():
+        if sampler is not None:
+            return native_start_trace()
+        return begin(native_start_trace)
+
+    @wraps(native_stop_trace)
+    def stop_trace():
+        if not direct_window:
+            return native_stop_trace()
+        return finish(native_stop_trace)
+
     profiler.start, profiler.stop = start, stop
+    profiler.start_trace, profiler.stop_trace = start_trace, stop_trace
     return profiler
 
 

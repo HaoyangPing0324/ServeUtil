@@ -17,6 +17,8 @@ prof.export_chrome_trace("last-cycle.json.gz")
 print(prof.serveutil_directory)
 ```
 
+The same class is available as `serveutil.profiler.profile`. Existing profiler subclasses can inherit from it and use `super().__init__(...)`. Code that manages individual windows can call `prepare_trace()`, `start_trace()` and `stop_trace()`. Each standalone window produces a capture and keeps the original trace available for export. These three low-level calls do not invoke the ready callback.
+
 ## Keep an existing recording schedule
 
 ```python

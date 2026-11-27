@@ -17,6 +17,8 @@ p.export_chrome_trace("last-cycle.json.gz")
 print(p.serveutil_directory)
 ```
 
+`serveutil.profiler.profile` 和 `serveutil.profile` 是同一个类。已有 profiler 子类可以继承它，并通过 `super().__init__(...)` 初始化。手工管理窗口时，可依次调用 `prepare_trace()`、`start_trace()` 和 `stop_trace()`。每个独立窗口都会生成一次采集，之后仍可导出原始 trace。直接调用这三个方法时，PyTorch 不会触发 `on_trace_ready`。
+
 ## 保留已有采集代码
 
 已有 `torch.profiler.profile` 的项目可将采集参数一并传给 `serveutil.instrument`。它组合原生回调和 observer，每个活动周期生成独立目录。下例保留 TensorBoard trace 和独立的 PyTorch execution graph。
