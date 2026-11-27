@@ -568,7 +568,7 @@ function deviceLabel(c) {
   const meta = c.node ? report.telemetry?.[c.node] : report.telemetry;
   const id = meta?.devices?.find((d) => d.uuid === c.device)?.index;
   return (
-    (c.node && Object.keys(report.telemetry).length > 1 ? c.node + " / " : "") +
+    (c.node ? c.node + " / " : "") +
     (id == null ? c.device : "GPU " + id)
   );
 }

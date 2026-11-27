@@ -267,6 +267,10 @@ def verify(site):
                 page.locator('article a[href*="sglang-erdma.html"]').click()
                 page.wait_for_function("document.documentElement.lang === 'zh-CN'")
                 assert "选区资源" in page.locator("main").inner_text()
+                metrics = page.locator("#metrics").inner_text()
+                assert all(label in metrics for label in ["Node A /", "Node B /", "58.5 MB/s", "0.51%"])
+                page.locator("#node").select_option("Node A")
+                assert "Node B /" not in page.locator("#metrics").inner_text()
                 page.locator("#viewerLanguage").click()
                 assert page.locator("html").get_attribute("lang") == "en"
                 page.goto(root + "zh/pd.html")
