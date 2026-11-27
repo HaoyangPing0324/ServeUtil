@@ -19,8 +19,12 @@ def main(argv=None):
         prog="serveutil", description="Capture and explore inference performance."
     )
     sub = p.add_subparsers(dest="action", required=True)
-    convert = sub.add_parser("export", help="write a compact Perfetto-compatible trace")
-    convert.add_argument("trace", type=Path)
+    convert = sub.add_parser("export", help="write a Perfetto-compatible Chrome trace")
+    convert.add_argument("trace", type=Path, nargs="+")
+    convert.add_argument(
+        "--full", action="store_true", help="merge original events from every source"
+    )
+    convert.add_argument("--clocks", type=Path, help="JSON source clock overrides for --full")
     convert.add_argument("-o", "--output", type=Path, required=True)
     report = sub.add_parser("report", help="generate a self-contained offline report")
     report.add_argument(
@@ -89,12 +93,23 @@ def main(argv=None):
     args = p.parse_args(argv)
     try:
         if args.action == "export":
-            if args.trace.is_dir():
+            if args.full:
+                from .raw_trace import export_full
+
+                clocks = (
+                    json.loads(args.clocks.read_text(encoding="utf8"))
+                    if args.clocks else None
+                )
+                source = args.trace[0] if len(args.trace) == 1 else args.trace
+                counts = export_full(source, args.output, clocks=clocks)
+            elif len(args.trace) != 1 or args.clocks:
+                p.error("use --full to merge multiple traces or choose clocks")
+            elif args.trace[0].is_dir():
                 from .perfetto import export_capture
 
-                counts = export_capture(args.trace, args.output)
+                counts = export_capture(args.trace[0], args.output)
             else:
-                counts = export(args.trace, args.output)
+                counts = export(args.trace[0], args.output)
             print(f"{args.output}: {counts['kept']:,} events")
         elif args.action == "report":
             from .report import render
