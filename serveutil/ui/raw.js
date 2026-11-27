@@ -41,7 +41,7 @@ function setOriginals(sources) {
     }
     for (const node of new Set(members.map((s) => s.node).filter(Boolean))) {
       const local = members.filter((s) => s.node === node);
-      if (local.length > 1 && local.length < members.length)
+      if (local.length > 1)
         groups.push({
           kind: "node",
           node,

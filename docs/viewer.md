@@ -17,6 +17,8 @@
 | 双击单个 HTML | 直接使用推理视图和原件下载。要自动打开内置的完整工作区，使用桌面版或 `serveutil view report.html`。 |
 | 独立 Perfetto 标签页 | 选择 **Open Perfetto in a tab** 可在顶层浏览器环境使用官方录制界面和原生文件选择器。设备录制依赖浏览器、操作系统及设备权限；外部扩展或在线服务依赖各自的网络和服务配置。 |
 
+同一 rank 使用多个原生采集周期时，rank 选择器只显示一个选项。选择节点后进入 Full Perfetto，可一起打开其所有 rank 及辅助文件。仅有原始文件和 `capture.json` 的目录也可以导入；具备校准时钟时可选择 UTC。完整硬件曲线和优化标记来自采集生成的 `report.html`，也可用 `serveutil report` 从原始采集重建。
+
 ## 导出
 
 ```bash

@@ -45,12 +45,14 @@ def kineto_activities(torch, metrics=HBM_PM_METRICS, interval_ms=1):
     config = prof.PerformanceMetricsConfig(
         metric_names=list(metrics), sampling_interval_ms=interval_ms
     )
-    return {
-        prof.ProfilerActivity.CPU: prof.ProfilerActivityConfig(),
-        prof.ProfilerActivity.CUDA: prof.ProfilerActivityConfig(
-            profiler_configs=[config]
-        ),
-    }
+    configs = [config]
+    if hasattr(prof, "CuspyConfig"):
+        # PyTorch 2.15 ships CUDA PM sampling through its Cuspy observer.
+        configs.append(prof.CuspyConfig())
+    return [
+        prof.ProfilerActivity.CPU,
+        {prof.ProfilerActivity.CUDA: prof.ProfilerActivityConfig(profiler_configs=configs)},
+    ]
 
 
 def _text(value):

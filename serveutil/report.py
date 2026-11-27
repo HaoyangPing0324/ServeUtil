@@ -11,6 +11,8 @@ from collections import defaultdict
 from importlib.resources import files
 from pathlib import Path
 
+import ijson
+
 from .analysis import findings, matmul_work, rank_skew, saturation
 from .bundle import open_text
 from .calibration import reference_for
@@ -70,7 +72,7 @@ def load_trace(path, rank, analysis=None):
                     except (TypeError, ValueError, OverflowError):
                         continue
                     if math.isfinite(number):
-                        title = name if key == "value" else f"{name} · {key}"
+                        title = name if key in ("", "value") else f"{name} · {key}"
                         counters[(title, pid, tid)].append([ts, number])
                 continue
             if phase == "B":
@@ -261,11 +263,55 @@ def inputs(path, analysis=None):
             rank = trace.get("rank")
             if trace.get("auxiliary"):
                 continue
-            parsed = load_trace(file, rank if rank is not None else i, analysis)
-            if manifest.get("engine") in {"sglang", "vllm"} and not any(
+            rank = str(rank if rank is not None else i)
+            metadata = dict(
+                rank=rank,
+                file=file.name,
+                node=trace.get("node"),
+                role=trace.get("role"),
+            )
+            if trace.get("native_output") and not file.name.lower().endswith(
+                (".json", ".json.gz")
+            ):
+                traces.append(
+                    dict(
+                        **metadata,
+                        base=None,
+                        begin=0,
+                        events=[],
+                        counters=[],
+                        native_only=True,
+                    )
+                )
+                continue
+            try:
+                parsed = load_trace(file, rank, analysis)
+            except (ijson.JSONError, ValueError) as exc:
+                if manifest.get("engine") != "torch":
+                    raise
+                if isinstance(exc, ijson.JSONError):
+                    note = {
+                        "parse_error": f"Cannot parse the original Kineto JSON: {exc}"
+                    }
+                elif trace.get(
+                    "native_output"
+                ) and "expected a PyTorch Chrome trace object" in str(exc):
+                    note = {"native_only": True}
+                else:
+                    raise
+                traces.append(
+                    dict(**metadata, base=None, begin=0, events=[], counters=[], **note)
+                )
+                continue
+            has_device_events = any(
                 e["kind"] in {"compute", "copy", "communication"}
                 for e in parsed["events"]
-            ):
+            )
+            if not has_device_events and "CUDA" in trace.get("activities", ()):
+                parsed["device_activity_unavailable"] = (
+                    "CUDA profiling was requested. This cycle contains no GPU kernels, copies or memsets."
+                )
+            if not has_device_events and manifest.get("engine") in {"sglang", "vllm"}:
                 if manifest.get("status") != "failed":
                     raise ValueError(
                         f"{file.name}: worker trace contains no device activities"
@@ -273,7 +319,11 @@ def inputs(path, analysis=None):
                 parsed["device_activity_unavailable"] = (
                     "The failed capture recovered no device activities on this worker."
                 )
-            parsed.update(node=trace.get("node"), role=trace.get("role"))
+            parsed.update(
+                node=trace.get("node"),
+                role=trace.get("role"),
+                source_path=trace["file"],
+            )
             traces.append(parsed)
         return manifest, traces
     return {"engine": "Imported trace"}, [load_trace(path, 0, analysis)]
@@ -305,7 +355,9 @@ def make_report(path, *, analysis=None):
         if t["base"] is not None
     ]
     origin = min(epochs, default=None)
-    common_clock = len(epochs) == len(traces)
+    common_clock = bool(epochs) and len(epochs) == sum(
+        "parse_error" not in t and not t.get("native_only") for t in traces
+    )
     trace_nodes = {t.get("node") for t in traces}
     if len(trace_nodes) > 1:
         common_clock = common_clock and all(
@@ -315,6 +367,14 @@ def make_report(path, *, analysis=None):
             )
             for n in trace_nodes
         )
+    # A native binary has its own clock domain. Node-local samples still use the capture wall clock.
+    sample_origin = origin if common_clock else None
+    if (
+        sample_origin is None
+        and all(t.get("native_only") for t in traces)
+        and not nodes
+    ):
+        sample_origin = manifest.get("started_ns")
     opportunities = []
     for trace in traces:
         base = trace.pop("base")
@@ -323,7 +383,7 @@ def make_report(path, *, analysis=None):
         begin = trace.pop("begin")
         offset = (
             (int(base) + correction(trace.get("node")) - origin) / 1000
-            if common_clock
+            if common_clock and base is not None
             else -begin
         )
         for e in trace["events"]:
@@ -365,10 +425,10 @@ def make_report(path, *, analysis=None):
             if cal_path.is_file():
                 baseline = json.loads(cal_path.read_text(encoding="utf-8"))
                 baselines[name or "local"] = baseline.get("benchmarks", [])
-        if not common_clock or not sample_path.is_file():
+        if sample_origin is None or not sample_path.is_file():
             continue
         groups = {}
-        shift = correction(name) - origin
+        shift = correction(name) - sample_origin
         with open_text(sample_path) as stream:
             for line in stream:
                 sample = json.loads(line)

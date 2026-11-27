@@ -2,11 +2,13 @@
 
 import gzip
 import inspect
+import json
 import os
 import shutil
 import tempfile
 import weakref
 from collections.abc import Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from types import MethodType
 
@@ -43,10 +45,26 @@ def _export_cycle(capture, profiler):
     else:
         with tempfile.TemporaryDirectory(dir=path.parent) as tmp:
             raw = Path(tmp) / "kineto.json"
-            native_export(str(raw))
-            with raw.open("rb") as src, gzip.open(path, "wb", compresslevel=3) as dst:
-                shutil.copyfileobj(src, dst)
-    capture.add_trace(path, rank)
+            if getattr(profiler, "_use_cuspy", False):
+                # This backend always writes gzip and may complete its export asynchronously.
+                native_export(str(path))
+                profiler.wait_for_exports()
+                if not path.exists():
+                    capture.manifest["note"] = (
+                        "The native CUDA observer produced no trace for this cycle."
+                    )
+                    capture.save()
+                    return
+            else:
+                native_export(str(raw))
+                with (
+                    raw.open("rb") as src,
+                    gzip.open(path, "wb", compresslevel=3) as dst,
+                ):
+                    shutil.copyfileobj(src, dst)
+    capture.add_trace(
+        path, rank, activities=[activity.name for activity in profiler.activities]
+    )
     profiler.serveutil_directory = capture.path
     profiler._serveutil_native_export = native_export
     profiler._serveutil_archive = path
@@ -60,11 +78,28 @@ def _export_saved(profiler, *args, **kwargs):
     signature = inspect.signature(native)
     options = signature.bind(*args, **kwargs).arguments
     dest = options.pop("path")
-    if _result(profiler) is not profiler._serveutil_result() or any(
-        value != signature.parameters[name].default for name, value in options.items()
+    # Empty annotations and a stream number alone select the standard Kineto writer.
+    if not options.get("cuda_graph_annotations"):
+        options.pop("cuda_graph_annotations", None)
+    if (
+        not options.get("use_python_export")
+        and not options.get("cuda_graph_annotations")
+        and options.get("graph_lanes", "none") == "none"
+    ):
+        options.pop("default_stream", None)
+    cuspy = getattr(profiler, "_use_cuspy", False)
+    if (
+        (cuspy and ".pftrace" in Path(dest).suffixes)
+        or _result(profiler) is not profiler._serveutil_result()
+        or any(
+            value != signature.parameters[name].default
+            for name, value in options.items()
+        )
     ):
         # Native alternatives (such as use_python_export=True) use their own writer.
         return native(*args, **kwargs)
+    if cuspy and not str(dest).endswith(".gz"):
+        dest = str(dest) + ".gz"
     source, dest = profiler._serveutil_archive, Path(dest)
     if source.resolve() == dest.resolve():
         return
@@ -75,15 +110,68 @@ def _export_saved(profiler, *args, **kwargs):
             shutil.copyfileobj(src, out)
 
 
+def _complete_cycle(capture, profiler, callback):
+    if not getattr(profiler, "_use_cuspy", False) or callback is None:
+        _export_cycle(capture, profiler)
+        if callback is not None:
+            callback(profiler)
+        return
+
+    # Cuspy hands each window to one writer. Give the caller first choice of
+    # format and preserve its native export instead of consuming the window.
+    destinations = []
+    native_export = profiler.export_chrome_trace
+    previous = vars(profiler).get("export_chrome_trace")
+
+    def export(*args, **kwargs):
+        path = inspect.signature(native_export).bind(*args, **kwargs).arguments["path"]
+        result = native_export(*args, **kwargs)
+        destinations.append(
+            Path(path if str(path).endswith(".gz") else str(path) + ".gz")
+        )
+        return result
+
+    profiler.serveutil_directory = capture.path
+    profiler.export_chrome_trace = export
+    try:
+        callback(profiler)
+    finally:
+        if previous is None:
+            del profiler.export_chrome_trace
+        else:
+            profiler.export_chrome_trace = previous
+    if not destinations:
+        _export_cycle(capture, profiler)
+        return
+    profiler.wait_for_exports()
+    for source in dict.fromkeys(destinations):
+        if not source.is_file():
+            capture.manifest["note"] = (
+                "The native writer has not produced its output. For caller-managed deferred writers, finish the export inside serveutil.observe."
+            )
+            continue
+        index = len(capture.manifest["traces"])
+        folder = capture.path / "traces" / f"cycle-{index}"
+        folder.mkdir()
+        saved = folder / source.name
+        shutil.copyfile(source, saved)
+        capture.manifest["traces"].append(
+            dict(
+                file=str(saved.relative_to(capture.path)),
+                rank=os.getenv("RANK", "0"),
+                native_output=True,
+            )
+        )
+    capture.save()
+
+
 def trace_handler(output="serveutil-runs", *, on_trace_ready=None):
     """Attach only an export callback to an existing native profiler."""
 
     def save(profiler):
         capture = Capture(output, "torch")
         try:
-            _export_cycle(capture, profiler)
-            if on_trace_ready is not None:
-                on_trace_ready(profiler)
+            _complete_cycle(capture, profiler, on_trace_ready)
             capture.finish()
         except BaseException as exc:
             _failed_callback(profiler, capture, exc)
@@ -106,8 +194,6 @@ def _torch_devices(torch, devices):
 
 def _baseline(torch, output, devices, calibration):
     if isinstance(calibration, (str, Path)) and calibration != "auto":
-        import json
-
         with Path(calibration).open(encoding="utf-8") as stream:
             return json.load(stream), None
     if not calibration or not devices or not torch.cuda.is_available():
@@ -150,12 +236,102 @@ def _configure(torch, devices, metrics, options):
     activities = options.get("activities")
     if activities is not None and not isinstance(activities, Mapping):
         activities = options["activities"] = tuple(activities)
+    cuda = torch.profiler.ProfilerActivity.CUDA
     if devices is None and (
         options.get("use_cuda") is False
-        or (activities and torch.profiler.ProfilerActivity.CUDA not in activities)
+        or (
+            activities
+            and not any(
+                cuda in item if isinstance(item, Mapping) else item == cuda
+                for item in activities
+            )
+        )
     ):
         return []
     return _torch_devices(torch, devices)
+
+
+def _independent_hbm(torch, options):
+    # A native PM or Cuspy configuration owns the CUDA profiler on this device.
+    extensions = tuple(
+        cls
+        for name in ("CuspyConfig", "PerformanceMetricsConfig")
+        if (cls := getattr(torch.profiler, name, None)) is not None
+    )
+    cuda = torch.profiler.ProfilerActivity.CUDA
+    for item in options.get("activities") or ():
+        if isinstance(item, Mapping):
+            config = item.get(cuda)
+            if any(
+                isinstance(ext, extensions)
+                for ext in getattr(config, "profiler_configs", ())
+            ):
+                return False
+    legacy = getattr(options.get("experimental_config"), "custom_profiler_config", None)
+    if not legacy:
+        return True
+    try:
+        config = json.loads(legacy)
+    except (TypeError, ValueError):
+        return legacy != "cuspy"
+    return not isinstance(config, dict) or not (
+        config.get("backend") == "cuspy"
+        or config.get("cuspy")
+        or config.get("pm_metrics")
+        or config.get("enable_pm_sampling")
+    )
+
+
+@contextmanager
+def observe(
+    output="serveutil-runs",
+    *,
+    devices=None,
+    interval_ms=100,
+    calibration="auto",
+    include_hbm=True,
+):
+    """Sample hardware around an unmodified profiler. Yield its new capture directory.
+
+    Point native exporters at the traces subdirectory. Complete deferred writes
+    before leaving the context. Every original file remains in that directory.
+    """
+    import torch
+    from .telemetry import TelemetrySampler
+
+    capture = Capture(output, "torch")
+    try:
+        selected = _torch_devices(torch, devices)
+        base, error = _baseline(torch, output, selected, calibration)
+        _set_metadata(capture, torch, selected, base, error)
+        sampler = TelemetrySampler(
+            capture.path / "samples.jsonl.gz",
+            selected,
+            interval_ms,
+            include_hbm=include_hbm,
+        ).start()
+        try:
+            yield capture.path
+        finally:
+            capture.manifest["telemetry"] = sampler.stop()
+            folder = capture.path / "traces"
+            for file in sorted(folder.rglob("*")):
+                if not file.is_file() or not file.resolve().is_relative_to(
+                    folder.resolve()
+                ):
+                    continue
+                # Every file is retained; the summary understands Chrome JSON.
+                capture.manifest["traces"].append(
+                    {
+                        "file": str(file.relative_to(capture.path)),
+                        "rank": os.getenv("RANK", "0"),
+                        "native_output": True,
+                    }
+                )
+    except BaseException as exc:
+        capture.finish(exc)
+        raise
+    capture.finish()
 
 
 def profile(
@@ -177,9 +353,7 @@ def profile(
 
     def ready(profiler):
         try:
-            _export_cycle(capture, profiler)
-            if user_callback is not None:
-                user_callback(profiler)
+            _complete_cycle(capture, profiler, user_callback)
         except BaseException as exc:
             _failed_callback(profiler, capture, exc)
             raise
@@ -200,7 +374,7 @@ def profile(
                 capture.path / "samples.jsonl.gz",
                 devices=selected,
                 interval_ms=interval_ms,
-                include_hbm=not bool(metrics),
+                include_hbm=_independent_hbm(torch, profiler_kwargs),
             ).start()
             return native_start()
         except BaseException as exc:
@@ -239,7 +413,7 @@ class _CycleObserver:
     """Collect one hardware run for each active execution-trace observer interval."""
 
     def __init__(
-        self, output, devices, interval_ms, base, error, observer, callback, metrics
+        self, output, devices, interval_ms, base, error, observer, callback, include_hbm
     ):
         self.output = output
         self.devices = devices
@@ -247,7 +421,7 @@ class _CycleObserver:
         self.base, self.error = base, error
         self.observer = observer
         self.callback = callback
-        self.include_hbm = not bool(metrics)
+        self.include_hbm = include_hbm
         self.capture = self.sampler = None
 
     def start(self):
@@ -293,9 +467,7 @@ class _CycleObserver:
             )
         capture, self.capture = self.capture, None
         try:
-            _export_cycle(capture, profiler)
-            if self.callback is not None:
-                self.callback(profiler)
+            _complete_cycle(capture, profiler, self.callback)
             capture.finish()
         except BaseException as exc:
             _failed_callback(profiler, capture, exc)
@@ -348,7 +520,7 @@ def instrument(
         error,
         native_observer,
         profiler_kwargs.get("on_trace_ready"),
-        metrics,
+        _independent_hbm(torch, profiler_kwargs),
     )
     return {
         **profiler_kwargs,

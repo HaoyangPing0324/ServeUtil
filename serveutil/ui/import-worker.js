@@ -1231,10 +1231,10 @@
       result.bytes = elements * width;
     return result;
   }
-  self.onmessage = async ({ data: file }) => {
+  self.onmessage = async ({ data: { file, metadataOnly } }) => {
     try {
       let stream = file.stream();
-      if (file.name.endsWith(".gz")) {
+      if (/\.gz$/i.test(file.name)) {
         stream = stream.pipeThrough(new DecompressionStream("gzip"));
       }
       const reader = stream.getReader();
@@ -1242,7 +1242,7 @@
       let origin = Infinity, count = 0, epoch, globalRank;
       const tokenizer = new TraceTokenizer();
       const parser = new TokenParser({
-        paths: [
+        paths: metadataOnly ? ["$.baseTimeNanoseconds"] : [
           "$.traceEvents.*",
           "$.baseTimeNanoseconds",
           "$.distributedInfo.rank"
@@ -1269,7 +1269,7 @@
         if (e.ph === "C") {
           for (const [field, val] of Object.entries(e.args || {})) {
             if (!Number.isFinite(val)) continue;
-            const name2 = field === "value" ? e.name : e.name + " \xB7 " + field;
+            const name2 = !field || field === "value" ? e.name : e.name + " \xB7 " + field;
             const id = key + "/" + name2;
             if (!counters.has(id))
               counters.set(id, {
@@ -1354,7 +1354,8 @@
         tokenizer.write(value);
       }
       if (!tokenizer.isEnded) tokenizer.end();
-      if (!count) throw Error("No trace events found in this file.");
+      if (!count && !metadataOnly)
+        throw Error("No trace events found in this file.");
       for (const e of events) e.ts -= origin;
       events.sort((a, b) => a.ts - b.ts || b.dur - a.dur);
       const series = [...counters.values()];

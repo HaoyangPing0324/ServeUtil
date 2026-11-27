@@ -8,8 +8,10 @@ import tarfile
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from playwright.sync_api import sync_playwright
+from native_trace import BINARY_TRACE
 
 
 def verify_sql(page, sql, expected):
@@ -73,23 +75,157 @@ def verify_full_workspace(page):
                 original["buffer"]
             )
     page.locator("#leaveNative").click()
-    # TrackDescriptor and two TrackEvents emitted by Perfetto's text_to_binary.
-    binary = bytes.fromhex(
-        "0a1d400150016801e20314082a12104e617469766520475055207175657565"
-        "0a1a40e80750015a134801582aba010c42696e61727920736c696365"
-        "0a0b40a01f50015a044802582a"
-    )
     page.locator("#file").set_input_files(
         {
             "name": "native.pftrace",
             "mimeType": "application/octet-stream",
-            "buffer": binary,
+            "buffer": BINARY_TRACE,
         }
     )
     page.locator("#nativePanel").wait_for()
     verify_sql(
         page, "select name || ' lasted ' || dur from slice", "Binary slice lasted 3000"
     )
+
+
+def verify_capture_cycles(page):
+    # Use only the raw folder, with no precomputed report.
+    base = 1_760_000_000_000_000_001
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        entries = []
+        for i, rank in enumerate((0, 0, 1)):
+            name = f"cycle-{i}.JSON.GZ"
+            trace = {
+                "baseTimeNanoseconds": base + 10_000 * i,
+                "traceEvents": [
+                    {
+                        "name": "bytes",
+                        "ph": "C",
+                        "pid": 1,
+                        "tid": 1,
+                        "ts": 20,
+                        "args": {"value": i},
+                    }
+                ],
+            }
+            (root / name).write_bytes(gzip.compress(json.dumps(trace).encode()))
+            entries.append({"file": name, "rank": rank, "node": "host"})
+        (root / "aux.json").write_text(
+            json.dumps({"baseTimeNanoseconds": base, "traceEvents": []})
+        )
+        entries.append(
+            {"file": "aux.json", "rank": 2, "node": "host", "auxiliary": True}
+        )
+        manifest = {
+            "engine": "torch",
+            "status": "complete",
+            "traces": entries,
+            "nodes": [
+                {"name": "host", "clock": {"offset_ns": 100, "uncertainty_ns": 10}}
+            ],
+        }
+
+        def open_folder():
+            (root / "capture.json").write_text(json.dumps(manifest))
+            page.goto(page.url)
+            page.locator("#captureFolder").set_input_files(root)
+            page.wait_for_function(
+                "report?.engine === 'torch' && report.traces.length === 3"
+            )
+
+        open_folder()
+        assert page.evaluate("report.time_origin_unix_ns") == str(base + 20_100)
+        assert page.evaluate("report.traces.map(t => t.rank_origin_us)") == [0, 10, 20]
+        assert page.evaluate("report.traces.map(t => t.rank_origin_unix_ns)") == [
+            str(base + 20_000 + i * 10_000) for i in range(3)
+        ]
+        assert page.locator("#rank option").count() == 3
+        assert page.evaluate("rows.filter(r=>r.kind==='counter').map(r=>r.points)") == [
+            [[0, 0], [10, 1]],
+            [[20, 2]],
+        ]
+        page.locator("#node").select_option("host")
+        page.locator("#fullTrace").click()
+        with page.expect_download() as download:
+            page.locator("#saveOriginal").click()
+        with tarfile.open(download.value.path()) as archive:
+            files = json.load(archive.extractfile("perfetto_manifest.json"))[
+                "perfetto_manifest"
+            ]["files"]
+            assert len(files) == len(entries)
+            for member, entry in zip(files, entries, strict=True):
+                raw = (root / entry["file"]).read_bytes()
+                assert archive.extractfile(member["path"]).read() == (
+                    gzip.decompress(raw) if entry["file"].endswith(".GZ") else raw
+                )
+        page.locator("#leaveNative").click()
+        page.locator("#rank").select_option("0")
+        page.locator("#fullTrace").click()
+        assert (
+            page.locator("#nativeSources option:checked").inner_text()
+            == "0 · all cycles"
+        )
+        entries[2]["node"] = "uncalibrated"
+        open_folder()
+        assert not page.evaluate("report.aligned")
+        assert page.locator("#clock option[value=utc]").count() == 0
+        assert page.locator("#clock option[value=local_utc]").count() == 1
+
+
+def verify_device_finding_scope(page):
+    hardware = dict(
+        device="GPU-a",
+        name="HBM read",
+        metric="hbm.read",
+        source="fixture",
+        scope="device",
+        unit="GB/s",
+        points=[[10, 95, 0], [20, 94, 10], [30, 93, 20]],
+        baseline={"value": 100},
+    )
+    from serveutil.analysis import saturation
+
+    findings = saturation([hardware])
+    assert len(findings) == 1
+    report = dict(
+        schema="serveutil.report/1",
+        engine="scope test",
+        aligned=True,
+        traces=[
+            dict(
+                rank=str(i),
+                file=str(i),
+                devices=[uuid],
+                counters=[],
+                events=[
+                    dict(
+                        kind="compute",
+                        device="0",
+                        lane="0",
+                        name="matmul",
+                        ts=0,
+                        dur=30,
+                    )
+                ],
+            )
+            for i, uuid in enumerate(("GPU-a", "GPU-b"))
+        ],
+        hardware=[hardware],
+        telemetry={},
+        findings=findings,
+    )
+    page.locator("#file").set_input_files(
+        {
+            "name": "report.json",
+            "mimeType": "application/json",
+            "buffer": json.dumps(report).encode(),
+        }
+    )
+    page.wait_for_function("report.engine === 'scope test'")
+    for rank, count in (("", 1), ("0", 1), ("1", 0)):
+        page.locator("#rank").select_option(rank)
+        assert page.locator("#issues button").count() == count
 
 
 def verify(site):
@@ -128,6 +264,8 @@ def verify(site):
                 page.locator("#file").set_input_files(trace)
                 page.get_by_role("heading", name="Imported trace timeline").wait_for()
                 verify_full_workspace(page)
+                verify_capture_cycles(page)
+                verify_device_finding_scope(page)
                 assert not errors, errors
                 browser.close()
         finally:

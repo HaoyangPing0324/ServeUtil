@@ -20,7 +20,7 @@ STAGES = {"prefill_transfer_kv_cache", "decode_transferred", "decode_forward"}
 
 
 def _read(path):
-    opener = gzip.open if path.suffix == ".gz" else open
+    opener = gzip.open if path.suffix.lower() == ".gz" else open
     with opener(path, "rt", encoding="utf-8") as stream:
         if path.name.removesuffix(".gz").endswith((".jsonl", ".ndjson")):
             for line in stream:

@@ -1,6 +1,8 @@
 import gzip
 import inspect
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -107,6 +109,15 @@ class NativeProfilerTests(unittest.TestCase):
                 python_trace = root / "python-writer.json"
                 p.export_chrome_trace(path=str(python_trace), use_python_export=True)
                 self.assertIn("traceEvents", json.loads(python_trace.read_text()))
+            if (
+                "cuda_graph_annotations"
+                in inspect.signature(type(p).export_chrome_trace).parameters
+            ):
+                standard = root / "standard.json"
+                p.export_chrome_trace(
+                    str(standard), cuda_graph_annotations={}, default_stream=9
+                )
+                self.assertEqual(standard.read_bytes(), data[-1])
             p.export_stacks(str(root / "stacks.txt"), "self_cpu_time_total")
             self.assertTrue((root / "stacks.txt").is_file())
             # Recent versions deprecate this API; the native dependency and output format are preserved.
@@ -147,13 +158,148 @@ class NativeProfilerTests(unittest.TestCase):
             with self.subTest(instrumented=instrumented):
                 self.check_recorder(instrumented, "cpu")
 
+    def run_in_fresh_process(self):
+        # Kineto initialization can depend on the first activity set in this process.
+        if __name__ == "__main__":
+            return False
+        subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "NativeProfilerTests." + self._testMethodName,
+            ],
+            check=True,
+        )
+        return True
+
     @unittest.skipUnless(
         torch is not None and torch.cuda.is_available(), "requires CUDA"
     )
     def test_native_cuda_results(self):
+        if self.run_in_fresh_process():
+            return
         for instrumented in (False, True):
             with self.subTest(instrumented=instrumented):
                 self.check_recorder(instrumented, "cuda")
+
+    @unittest.skipUnless(
+        torch is not None and torch.cuda.is_available(), "requires CUDA"
+    )
+    def test_cpu_then_cuda_matches_native_device_visibility(self):
+        if self.run_in_fresh_process():
+            return
+        from serveutil.report import make_report
+
+        cpu, cuda = (
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with torch.profiler.profile(activities=[cpu]):
+                self.workload(0, "cpu")
+            with torch.profiler.profile(activities=[cpu, cuda]) as native:
+                self.workload(1, "cuda")
+            source = Path(tmp) / "native.json"
+            native.export_chrome_trace(str(source))
+            with serveutil.profile(
+                tmp, devices=[0], activities=[cpu, cuda], calibration=False
+            ) as recorded:
+                self.workload(1, "cuda")
+            upstream = make_report(source)["traces"][0]
+            captured = make_report(recorded.serveutil_directory)["traces"][0]
+
+            def kernels(trace):
+                return sum(e["kind"] == "compute" for e in trace["events"])
+
+            self.assertEqual(bool(kernels(captured)), bool(kernels(upstream)))
+            self.assertEqual(
+                "device_activity_unavailable" in captured, not kernels(upstream)
+            )
+
+    def test_observe_preserves_native_writer_and_all_cycles(self):
+        from serveutil.report import make_report
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with serveutil.observe(tmp, devices=[], calibration=False) as capture:
+                options = dict(
+                    activities=[torch.profiler.ProfilerActivity.CPU],
+                    schedule=torch.profiler.schedule(
+                        wait=0, warmup=1, active=1, repeat=2
+                    ),
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler(
+                        str(capture / "traces"), use_gzip=True
+                    ),
+                )
+                with torch.profiler.profile(**options) as p:
+                    for i in range(4):
+                        self.workload(i, "cpu")
+                        p.step()
+                self.assertNotIn("export_chrome_trace", vars(p))
+                # Additional binary outputs remain byte-exact beside the two JSON cycles.
+                (capture / "traces" / "os.pftrace").write_bytes(b"\x0a\x00")
+            self.assertTrue((capture / "report.html").is_file())
+            report = make_report(capture)
+            self.assertEqual(sum(bool(t["events"]) for t in report["traces"]), 2)
+            self.assertEqual(
+                sum(bool(t.get("native_only")) for t in report["traces"]), 1
+            )
+            self.assertTrue(report["aligned"])
+
+    def test_native_metric_names_reach_torch_activity_config(self):
+        from serveutil.telemetry import kineto_activities
+
+        if not hasattr(torch.profiler, "PerformanceMetricsConfig"):
+            with self.assertRaisesRegex(RuntimeError, "lacks PerformanceMetricsConfig"):
+                kineto_activities(torch, ["test_metric"])
+            return
+        activities = kineto_activities(torch, ["test_metric"], interval_ms=5)
+        native = torch.profiler.profile(activities=activities)
+        config = native.activity_configs[
+            torch.profiler.ProfilerActivity.CUDA
+        ].profiler_configs[0]
+        self.assertEqual(config.metric_names, ["test_metric"])
+        self.assertEqual(config.sampling_interval_ms, 5)
+        options = serveutil.instrument(
+            devices=[], calibration=False, metrics=["test_metric"]
+        )
+        configured = torch.profiler.profile(**options)
+        actual = configured.activity_configs[
+            torch.profiler.ProfilerActivity.CUDA
+        ].profiler_configs[0]
+        self.assertEqual(actual.metric_names, ["test_metric"])
+        self.assertEqual(actual.sampling_interval_ms, 1)
+        if hasattr(torch.profiler, "CuspyConfig"):
+            self.assertTrue(configured._use_cuspy)
+        self.assertFalse(options["execution_trace_observer"].include_hbm)
+
+    def test_deferred_native_binary_export_runs_user_writer_first(self):
+        from serveutil.bundle import Capture
+        from serveutil.recording import _complete_cycle
+
+        class DeferredProfiler:
+            _use_cuspy = True
+            pending = None
+
+            def export_chrome_trace(self, path):
+                if self.pending is not None:
+                    raise AssertionError("window exported twice")
+                self.pending = Path(str(path) + ".gz")
+
+            def wait_for_exports(self):
+                self.pending.write_bytes(gzip.compress(b"\x0a\x00"))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            capture = Capture(tmp, "torch")
+            recorder = DeferredProfiler()
+            original = Path(tmp) / "native.pftrace"
+            _complete_cycle(
+                capture, recorder, lambda p: p.export_chrome_trace(str(original))
+            )
+            self.assertNotIn("export_chrome_trace", vars(recorder))
+            saved = capture.path / capture.manifest["traces"][0]["file"]
+            self.assertEqual(saved.read_bytes(), recorder.pending.read_bytes())
+            capture.finish()
+            self.assertTrue((capture.path / "report.html").exists())
 
     def test_manual_start_stop_default_and_wait_only(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -216,3 +362,7 @@ class NativeProfilerTests(unittest.TestCase):
                     (p.serveutil_directory / "capture.json").read_text()
                 )
                 self.assertEqual(manifest["status"], "failed")
+
+
+if __name__ == "__main__":
+    unittest.main()

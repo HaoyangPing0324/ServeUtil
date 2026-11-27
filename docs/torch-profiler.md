@@ -50,6 +50,21 @@ with torch.profiler.profile(**options) as p:
 
 只需增加 trace 导出时，可将 `serveutil.trace_handler("runs", on_trace_ready=tb)` 用作原生 `on_trace_ready`。这种用法只接收已经录制完成的 trace。要采集同窗的硬件计数器，请使用 `profile` 或 `instrument`。
 
+## 保留原生导出器和异步写入
+
+需要自己控制原生回调、导出格式或后台写入时，可以用 `serveutil.observe` 包住现有代码。上下文返回新建的采集目录。将要在查看器打开的原始 trace 写入其中的 `traces/`，其他产物也可以写在这个采集目录内。硬件采样覆盖整个上下文。退出时，ServeUtil 从实际落盘的文件生成报告。
+
+```python
+with serveutil.observe("runs") as run:
+    handler = torch.profiler.tensorboard_trace_handler(str(run / "traces"), use_gzip=True)
+    with torch.profiler.profile(on_trace_ready=handler, record_shapes=True) as p:
+        model(inputs)
+    if hasattr(p, "wait_for_exports"):
+        p.wait_for_exports()
+```
+
+这个入口使用应用构造的原生 profiler，保留其导出方法、活动筛选和 observer。如果应用自行接管后台导出任务，请在退出 `observe` 前等待任务完成。使用需要独占 CUPTI 的原生设备采样时，可设 `include_hbm=False`，其余硬件采样仍随上下文启停。Chrome JSON 可以生成推理视图，二进制 trace 可在 Full Perfetto 中打开。
+
 ## 数据与原生选项
 
 | 入口或选项 | 结果 |
@@ -67,4 +82,10 @@ with torch.profiler.profile(**options) as p:
 
 ## 已验证的版本能力
 
-PyTorch 2.10.0 的 CPU 录制已验证多周期回调、原生 execution graph、内存时间线、调用栈和重复导出。PyTorch 2.13.0+cu130 的 NVIDIA H20 录制已验证同组功能、CUDA kernel 与 CPU/CUDA flow，以及 TensorBoard 的 `use_python_export` 选项。两种接入方式均完成过 Qwen3 的多周期生成，原始文件保留设备活动、内存分配和 Python 调用事件。上述 H20 构建通过独立 CUPTI PM 采集方向性 HBM 计数器；可用的原生硬件指标配置取决于 PyTorch 构建。
+PyTorch 2.10.0 和 2.15.0 的 CPU 录制已验证多周期回调、原生 execution graph、内存时间线、调用栈和重复导出。PyTorch 2.13.0+cu130 的 NVIDIA H20 录制已验证同组功能、CUDA kernel 与 CPU/CUDA flow，以及 TensorBoard 的 `use_python_export` 选项。`profile`、`instrument` 和 `observe` 均完成过 Qwen3 的多周期生成，原始文件保留设备活动、内存分配和 Python 调用事件。上述 H20 构建通过独立 CUPTI PM 采集方向性 HBM 计数器；可用的原生硬件指标配置取决于 PyTorch 构建。
+
+同机切换活动类型时，PyTorch 2.13.0+cu130 在 H20 上表现出进程级初始化差异。先录仅 CPU 的任务，再用 CPU 和 CUDA 录制 GPU 矩阵乘，纯 PyTorch 与 ServeUtil 的默认导出都可能缺少 kernel。将包含 CUDA 的活动放在进程首次采集，或在新进程启动 GPU 采集，可得到 kernel。ServeUtil 在报告摘要及详情中标明请求了 CUDA、却没有记录到 kernel、拷贝或 memset 的周期。
+
+PyTorch 2.10 和 2.15 的默认 Kineto writer 在字符串 metadata 含内嵌引号时可能产生无效 JSON。ServeUtil 保留原始字节，在报告中标出无法解析的文件，继续展示同一采集中可解析的周期。可单独下载原件核查上游输出。
+
+在 PyTorch 2.15.0+cu132 的 H20 上，普通 CUDA 活动、按 `CONCURRENT_KERNEL` 筛选、Cuspy 的同步和异步 JSON 导出、原生压缩 Perfetto protobuf 均经过实测。使用 `metrics=["dram__bytes_read.sum.per_second", "dram__bytes_write.sum.per_second"]` 可请求当前 GPU 的原生 HBM 采样。该版本的快捷入口同时启用 `CuspyConfig` 和 `PerformanceMetricsConfig`。实验使用 CUPTI 13.4.92，随 cu132 环境提供的 CUPTI 13.2.2 低于 Cuspy 要求的 13.3。显式传入 `activities` 时可自行控制上游后端。在同一台 H20 上仅启用 Kineto 与 PM 配置时，原生 PyTorch 和 ServeUtil 均有 kernel、零个 PM 计数事件。

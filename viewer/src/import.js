@@ -113,10 +113,10 @@ function communicator(args) {
 }
 
 // Parse in a worker so a long Kineto capture does not block pan and zoom.
-self.onmessage = async ({ data: file }) => {
+self.onmessage = async ({ data: { file, metadataOnly } }) => {
   try {
     let stream = file.stream();
-    if (file.name.endsWith(".gz")) {
+    if (/\.gz$/i.test(file.name)) {
       stream = stream.pipeThrough(new DecompressionStream("gzip"));
     }
     const reader = stream.getReader();
@@ -129,11 +129,13 @@ self.onmessage = async ({ data: file }) => {
       globalRank;
     const tokenizer = new TraceTokenizer();
     const parser = new TokenParser({
-      paths: [
-        "$.traceEvents.*",
-        "$.baseTimeNanoseconds",
-        "$.distributedInfo.rank",
-      ],
+      paths: metadataOnly
+        ? ["$.baseTimeNanoseconds"]
+        : [
+            "$.traceEvents.*",
+            "$.baseTimeNanoseconds",
+            "$.distributedInfo.rank",
+          ],
       keepStack: false,
     });
     tokenizer.onToken = (token) => parser.write(token);
@@ -157,7 +159,7 @@ self.onmessage = async ({ data: file }) => {
       if (e.ph === "C") {
         for (const [field, val] of Object.entries(e.args || {})) {
           if (!Number.isFinite(val)) continue;
-          const name = field === "value" ? e.name : e.name + " · " + field;
+          const name = !field || field === "value" ? e.name : e.name + " · " + field;
           const id = key + "/" + name;
           if (!counters.has(id))
             counters.set(id, {
@@ -258,7 +260,8 @@ self.onmessage = async ({ data: file }) => {
       tokenizer.write(value);
     }
     if (!tokenizer.isEnded) tokenizer.end();
-    if (!count) throw Error("No trace events found in this file.");
+    if (!count && !metadataOnly)
+      throw Error("No trace events found in this file.");
     for (const e of events) e.ts -= origin;
     events.sort((a, b) => a.ts - b.ts || b.dur - a.dur);
     const series = [...counters.values()];

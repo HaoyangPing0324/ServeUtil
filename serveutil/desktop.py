@@ -15,7 +15,15 @@ def _verify(window):
     # The native load event precedes decompression and drawing for large reports.
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
-        if window.evaluate_js("!document.getElementById('png').disabled"):
+        if window.evaluate_js("!document.getElementById('nativePanel').hidden"):
+            if window.evaluate_js("""(() => {
+                const frame = document.querySelector('#nativeFrame iframe');
+                const doc = frame && frame.contentDocument;
+                return !!(doc && doc.querySelector("a[href='#!/query']") &&
+                    doc.querySelector('canvas') && doc.body.innerText.includes('CURRENT TRACE'));
+            })()"""):
+                return True
+        elif window.evaluate_js("!document.getElementById('png').disabled"):
             if not window.evaluate_js("""
                 document.getElementById('view').value = 'operator';
                 document.getElementById('view').dispatchEvent(new Event('change'));
@@ -28,16 +36,6 @@ def _verify(window):
             ):
                 return True
             window.evaluate_js("document.getElementById('fullTrace').click(); true")
-            while time.monotonic() < deadline:
-                if window.evaluate_js("""(() => {
-                    const frame = document.querySelector('#nativeFrame iframe');
-                    const doc = frame && frame.contentDocument;
-                    return !!(doc && doc.querySelector("a[href='#!/query']") &&
-                        doc.querySelector('canvas') && doc.body.innerText.includes('CURRENT TRACE'));
-                })()"""):
-                    return True
-                time.sleep(0.2)
-            return False
         time.sleep(0.1)
     return False
 

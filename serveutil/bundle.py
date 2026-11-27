@@ -28,7 +28,7 @@ def write_json(path, data):
 
 
 def open_text(path):
-    return (gzip.open if str(path).endswith(".gz") else open)(
+    return (gzip.open if Path(path).suffix.lower() == ".gz" else open)(
         path, "rt", encoding="utf-8"
     )
 
@@ -55,10 +55,11 @@ class Capture:
     def save(self):
         write_json(self.path / "capture.json", self.manifest)
 
-    def add_trace(self, path, rank=None):
-        self.manifest["traces"].append(
-            {"file": str(path.relative_to(self.path)), "rank": rank}
-        )
+    def add_trace(self, path, rank=None, *, activities=None):
+        trace = {"file": str(path.relative_to(self.path)), "rank": rank}
+        if activities is not None:
+            trace["activities"] = sorted(activities)
+        self.manifest["traces"].append(trace)
         self.save()
 
     def finish(self, error=None):

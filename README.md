@@ -45,6 +45,8 @@ with torch.profiler.profile(
         prof.step()
 ```
 
+需要完整保留现有程序对原生 profiler、回调和异步导出的控制时，用 `with serveutil.observe("runs") as run:` 包住采集代码，将原生导出写入 `run / "traces"`，并在退出前等待写入完成。这个入口也支持 PyTorch 2.15 Cuspy 的原生二进制 Perfetto trace。[接入示例与版本要求](docs/torch-profiler.md)
+
 ## 在 vLLM 或 SGLang 中采集
 
 服务启动时启用框架的 PyTorch profiler，并把 trace 写到 ServeUtil 能读取的目录。下列命令会预热模型、发出持续请求、采集硬件并生成 HTML；已有负载时省略 `--generate`。命令结束时会打印报告路径。
@@ -66,7 +68,7 @@ serveutil capture --engine sglang --topology deployment.json \
 
 ## 读报告
 
-导入整个 capture 后，默认显示所有节点和 rank。节点、rank、算子层级和原始名称均可独立选择。**Full Perfetto** 用随包提供的官方 UI 和 Trace Processor 打开原始文件，保留原生事件、参数和关联，支持 SQL、Data Explorer 以及上游插件。[查看器使用说明](docs/viewer.md)
+导入整个 capture 后，默认显示所有节点和 rank。节点、rank、算子层级和原始名称均可独立选择。**Full Perfetto** 用随包提供的官方 UI 和 Trace Processor 打开原始文件，保留原生事件、参数和关联，支持 SQL、Data Explorer 以及上游插件。随包资源与官方固定版本逐项校验，选择单个 rank、整个节点或全局后均可进入完整查看器。[查看器使用说明](docs/viewer.md)
 
 | 想弄清楚的问题 | 查看方式 |
 |---|---|
@@ -93,7 +95,7 @@ serveutil view report.html --desktop
 
 ## 验证与复用
 
-实测覆盖 Qwen3-0.6B 在两台 H20 主机间直连的 vLLM PP2、SGLang TP2，以及两种框架各自的 NIXL Prefill/Decode 分离。按相同时间段独立读取两端网卡计数，核对了报告中的绝对带宽和利用率。结果页列出框架版本、传输后端、GPU kernel 证据和短窗口 profiling 开销。[真实模型与采集开销](docs/validation.md)
+实测覆盖 Qwen3-0.6B 在两台 H20 主机间直连的 vLLM PP2、SGLang TP2，以及两种框架各自的 NIXL Prefill/Decode 分离。TP2 和 PP2 均跑通 NCCL eRDMA，双机 PD 使用 UCX/TCP。六组实测按相同时间段独立读取两端网口计数，核对了报告中的绝对带宽和利用率。结果页列出框架版本、传输后端、GPU kernel 证据和短窗口 profiling 开销。[真实模型与采集开销](docs/validation.md)
 
 ServeUtil 直接使用 PyTorch/Kineto 时间线、NVML GPM 与 CUPTI。标定可调用 nvbandwidth、nccl-tests 和 RDMA perftest。已有 llmperfscope run 可以导入，安装 HTA 或 TraceLens 后也能把上游分析结果放入同一份报告。[上游工具与对应入口](docs/tools.md) · [PyTorch Profiler](https://docs.pytorch.org/docs/stable/profiler.html) · [Perfetto](https://ui.perfetto.dev/)
 

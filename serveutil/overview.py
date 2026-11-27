@@ -102,7 +102,7 @@ def export(source, destination):
         raise ValueError("output must end in .json")
     counts = Counter()
     header = {}
-    opener = gzip.open if source.suffix == ".gz" else open
+    opener = gzip.open if source.suffix.lower() == ".gz" else open
     with tempfile.NamedTemporaryFile(
         dir=destination.parent, suffix=".tmp", delete=False
     ) as temp:

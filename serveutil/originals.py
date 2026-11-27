@@ -43,7 +43,11 @@ def attachments(path, report=None):
         return []
     m = json.loads(manifest.read_text(encoding="utf-8"))
     result = []
-    parsed = {(t["rank"], t["file"]): t for t in (report or {}).get("traces", [])}
+    same_host = len({entry.get("node") for entry in m["traces"]}) <= 1
+    parsed = {
+        (t.get("node"), t["rank"], t.get("source_path", t["file"])): t
+        for t in (report or {}).get("traces", [])
+    }
     nodes = {n["name"]: n for n in m.get("nodes", [])}
     for i, entry in enumerate(m["traces"]):
         f = (path / entry["file"]).resolve()
@@ -57,14 +61,17 @@ def attachments(path, report=None):
             entry.get("node"),
             "auxiliary" if entry.get("auxiliary") else "trace",
         )
-        trace = parsed.get((rank, f.name), {})
+        trace = parsed.get(
+            (entry.get("node"), rank, entry["file"]),
+            parsed.get((entry.get("node"), rank, f.name), {}),
+        )
         clock = nodes.get(entry.get("node"), {}).get("clock") or {}
-        has_clock = not entry.get("node") or (
+        has_clock = same_host or (
             isinstance(clock.get("offset_ns"), int)
             and isinstance(clock.get("uncertainty_ns"), int)
         )
         if entry.get("auxiliary") and has_clock:
-            opener = gzip.open if f.suffix == ".gz" else open
+            opener = gzip.open if f.suffix.lower() == ".gz" else open
             with opener(f, "rb") as src:
                 base = next(ijson.items(src, "baseTimeNanoseconds"), None)
             if base is not None:

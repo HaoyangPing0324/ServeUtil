@@ -20,7 +20,7 @@ from ijson.common import ObjectBuilder
 
 
 def _open(path):
-    return gzip.open(path, "rb") if path.suffix == ".gz" else path.open("rb")
+    return gzip.open(path, "rb") if path.suffix.lower() == ".gz" else path.open("rb")
 
 
 def _header(path):

@@ -2,11 +2,11 @@
 
 from .overview import export, kernel_label
 
-__all__ = ["export", "kernel_label", "profile", "trace_handler", "instrument"]
+__all__ = ["export", "kernel_label", "profile", "trace_handler", "instrument", "observe"]
 
 
 def __getattr__(name):
-    if name in {"profile", "trace_handler", "instrument"}:
+    if name in {"profile", "trace_handler", "instrument", "observe"}:
         from . import recording
 
         return getattr(recording, name)

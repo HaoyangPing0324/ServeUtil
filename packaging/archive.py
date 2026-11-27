@@ -6,6 +6,9 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from native_trace import BINARY_TRACE
 
 root = Path("dist").resolve()
 report = Path("examples/h20-decode.html").resolve()
@@ -21,6 +24,10 @@ subprocess.run(
     check=True,
     timeout=120,
 )
+with TemporaryDirectory() as tmp:
+    trace = Path(tmp) / "native.pftrace"
+    trace.write_bytes(BINARY_TRACE)
+    subprocess.run([str(program), "--verify", str(trace)], check=True, timeout=120)
 name = f"ServeUtil-{platform.system()}-{platform.machine()}"
 shutil.make_archive(
     str(root / name), "zip" if os.name == "nt" else "gztar", root, folder.name

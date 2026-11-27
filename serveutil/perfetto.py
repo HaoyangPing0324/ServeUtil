@@ -16,6 +16,9 @@ def export_capture(directory, output):
     if output.exists() and output.resolve().is_relative_to(Path(directory).resolve()):
         raise ValueError("use a new file or an output outside the capture")
     data = make_report(directory)
+    for trace in data["traces"]:
+        if trace.get("parse_error"):
+            raise ValueError(f"{trace['file']}: {trace['parse_error']}")
 
     def events():
         for pid, trace in enumerate(data["traces"], 1):

@@ -411,7 +411,7 @@ function setOriginals(sources) {
     }
     for (const node of new Set(members.map((s) => s.node).filter(Boolean))) {
       const local = members.filter((s) => s.node === node);
-      if (local.length > 1 && local.length < members.length)
+      if (local.length > 1)
         groups.push({
           kind: "node",
           node,
@@ -1965,10 +1965,10 @@ SOFTWARE.
       result.bytes = elements * width;
     return result;
   }
-  self.onmessage = async ({ data: file }) => {
+  self.onmessage = async ({ data: { file, metadataOnly } }) => {
     try {
       let stream = file.stream();
-      if (file.name.endsWith(".gz")) {
+      if (/\.gz$/i.test(file.name)) {
         stream = stream.pipeThrough(new DecompressionStream("gzip"));
       }
       const reader = stream.getReader();
@@ -1976,7 +1976,7 @@ SOFTWARE.
       let origin = Infinity, count = 0, epoch, globalRank;
       const tokenizer = new TraceTokenizer();
       const parser = new TokenParser({
-        paths: [
+        paths: metadataOnly ? ["$.baseTimeNanoseconds"] : [
           "$.traceEvents.*",
           "$.baseTimeNanoseconds",
           "$.distributedInfo.rank"
@@ -2003,7 +2003,7 @@ SOFTWARE.
         if (e.ph === "C") {
           for (const [field, val] of Object.entries(e.args || {})) {
             if (!Number.isFinite(val)) continue;
-            const name2 = field === "value" ? e.name : e.name + " \xB7 " + field;
+            const name2 = !field || field === "value" ? e.name : e.name + " \xB7 " + field;
             const id = key + "/" + name2;
             if (!counters.has(id))
               counters.set(id, {
@@ -2088,7 +2088,8 @@ SOFTWARE.
         tokenizer.write(value);
       }
       if (!tokenizer.isEnded) tokenizer.end();
-      if (!count) throw Error("No trace events found in this file.");
+      if (!count && !metadataOnly)
+        throw Error("No trace events found in this file.");
       for (const e of events) e.ts -= origin;
       events.sort((a, b) => a.ts - b.ts || b.dur - a.dur);
       const series = [...counters.values()];
@@ -2201,9 +2202,12 @@ function visibleTrace(t) {
 function repopulateRanks() {
   $("rank").replaceChildren();
   option($("rank"), "", "All ranks");
-  for (const t of report.traces)
-    if (!$("node").value || t.node === $("node").value)
-      option($("rank"), t.rank, rankLabel(t.rank));
+  const ranks = new Set(
+    report.traces
+      .filter((t) => !$("node").value || t.node === $("node").value)
+      .map((t) => t.rank),
+  );
+  for (const rank of ranks) option($("rank"), rank, rankLabel(rank));
 }
 function updateIntervals() {
   $("interval").replaceChildren();
@@ -2299,7 +2303,7 @@ function load(data) {
       t.rank_origin_unix_ns = String(
         BigInt(t.raw_epoch) + BigInt(Math.round(t.raw_begin * 1000)),
       );
-      t.rank_origin_us = 0;
+      t.rank_origin_us ??= 0;
       if (!data.time_origin_unix_ns && data.traces.length === 1)
         data.time_origin_unix_ns = t.rank_origin_unix_ns;
     }
@@ -2364,6 +2368,12 @@ function load(data) {
     if (link.transfer) eventLinks.set(link.transfer, link);
     for (const end of link.ends) if (end.event) eventLinks.set(end.event, link);
   }
+  if (!Number.isFinite(lo))
+    for (const series of data.hardware)
+      for (const [end, , start] of series.points) {
+        lo = Math.min(lo, start ?? end);
+        hi = Math.max(hi, end);
+      }
   bounds = Number.isFinite(lo) ? [lo, Math.max(hi, lo + 1)] : [0, 1];
   [windowStart, windowEnd] = bounds;
   updateIntervals();
@@ -2378,6 +2388,14 @@ function load(data) {
     $("summary").textContent +=
       " · Incomplete capture — see collection details";
   }
+  if (data.traces.some((t) => t.native_only))
+    $("summary").textContent += " · Open native tracks in Full Perfetto";
+  if (data.traces.some((t) => t.parse_error))
+    $("summary").textContent +=
+      " · Unreadable original trace (see collection details)";
+  if (data.traces.some((t) => t.device_activity_unavailable))
+    $("summary").textContent +=
+      " · Missing device activity (see collection details)";
   if (Object.keys(data.timing || {}).length > 1) {
     const worst = Math.max(
       ...Object.values(data.timing).map((x) => x.max_error_us),
@@ -2393,9 +2411,16 @@ function load(data) {
       collectionErrors: data.collection_errors?.length
         ? data.collection_errors
         : undefined,
+      unreadableTraces: data.traces
+        .filter((t) => t.parse_error)
+        .map((t) => ({ file: t.file, rank: t.rank, reason: t.parse_error })),
       missingDeviceActivity: data.traces
         .filter((t) => t.device_activity_unavailable)
-        .map((t) => ({ rank: t.rank, reason: t.device_activity_unavailable })),
+        .map((t) => ({
+          rank: t.rank,
+          file: t.file,
+          reason: t.device_activity_unavailable,
+        })),
       aligned: data.aligned,
       clockAlignment: data.alignment_note,
       telemetry: data.telemetry,
@@ -2489,10 +2514,26 @@ function refresh() {
     }
     if (mode === "overview" || mode === "hardware")
       for (const c of t.counters) {
-        groups.set(
-          t.rank + "/counter/" + c.device + "/" + c.lane + "/" + c.name,
-          { ...c, label: "R" + t.rank + " · " + c.name, kind: "counter" },
-        );
+        const key = JSON.stringify([
+          t.node,
+          t.rank,
+          c.device,
+          c.lane,
+          c.name,
+          report.aligned ? null : t.file,
+        ]);
+        const existing = groups.get(key);
+        if (existing) {
+          existing.points = existing.points
+            .concat(c.points)
+            .sort((a, b) => a[0] - b[0]);
+        } else {
+          groups.set(key, {
+            ...c,
+            label: rankLabel(t.rank) + " · " + c.name,
+            kind: "counter",
+          });
+        }
       }
   }
   const selected = report.traces.find((t) => t.rank === rank);
@@ -2559,20 +2600,21 @@ function refresh() {
         });
       }
     }
-  items = report.findings.filter(
-    (e) =>
-      (!$("node").value ||
-        e.node === $("node").value ||
-        report.traces.some(
-          (t) => t.rank === e.rank && t.node === $("node").value,
-        )) &&
-      (!rank ||
-        e.rank === rank ||
-        (e.node &&
-          report.traces.some((t) => t.rank === rank && t.node === e.node))) &&
-      e.ts < windowEnd &&
-      e.ts + e.dur > windowStart,
-  );
+  const visibleTraces = report.traces.filter(visibleTrace);
+  items = report.findings.filter((e) => {
+    if (e.ts >= windowEnd || e.ts + e.dur <= windowStart) return false;
+    if (e.scope && e.metric)
+      return hw.some(
+        (series) =>
+          (series.node ?? null) === (e.node ?? null) &&
+          series.device === e.device &&
+          series.name === e.metric &&
+          series.source === e.source,
+      );
+    return visibleTraces.some(
+      (t) => t.rank === e.rank && (!e.node || t.node === e.node),
+    );
+  });
   if (items.length)
     groups.set("opportunities", {
       label: "Opportunities",
@@ -3598,8 +3640,8 @@ async function unpack(raw) {
     .pipeThrough(new DecompressionStream("gzip"));
   return JSON.parse(await new Response(stream).text());
 }
-async function importFile(file) {
-  if (file.name.endsWith(".html")) {
+async function importFile(file, metadataOnly = false) {
+  if (/\.html$/i.test(file.name)) {
     const html = await file.text();
     const content =
       /<script\s+id="capture-data"\s+type="application\/json">([\s\S]*?)<\/script>/i.exec(
@@ -3618,7 +3660,7 @@ async function importFile(file) {
       worker.onmessage = ({ data }) =>
         data.error ? reject(Error(data.error)) : resolve(data);
       worker.onerror = (e) => reject(Error(e.message));
-      worker.postMessage(file);
+      worker.postMessage({ file, metadataOnly });
     });
   } finally {
     worker.terminate();
@@ -3759,6 +3801,8 @@ $("captureFolder").onchange = async (event) => {
       (manifest.nodes || []).map((n) => [n.name, n.clock]),
     );
     const epochs = [];
+    const sameHost =
+      new Set(manifest.traces.map((entry) => entry.node)).size <= 1;
     for (const [i, entry] of manifest.traces.entries()) {
       const f = byPath.get(entry.file.replaceAll("\\", "/"));
       if (!f) throw Error("Missing capture file: " + entry.file);
@@ -3771,44 +3815,51 @@ $("captureFolder").onchange = async (event) => {
         kind: entry.auxiliary ? "auxiliary" : "trace",
       };
       sources.push(source);
+      const clock = clocks.get(entry.node);
+      const knownClock =
+        sameHost ||
+        (Number.isSafeInteger(clock?.uncertainty_ns) &&
+          Number.isSafeInteger(clock?.offset_ns));
       if (entry.auxiliary) {
-        const auxiliary = (await importFile(f)).traces[0];
-        const clock = clocks.get(entry.node);
-        if (
-          auxiliary?.raw_epoch != null &&
-          (!entry.node ||
-            (clock?.uncertainty_ns != null && clock?.offset_ns != null))
-        )
+        const auxiliary = (await importFile(f, true)).traces[0];
+        if (auxiliary?.raw_epoch != null && knownClock)
           source.epoch = String(
             BigInt(auxiliary.raw_epoch) + BigInt(clock?.offset_ns ?? 0),
           );
         continue;
       }
       if (data) {
-        const t = data.traces.find((t) => t.rank === rank && t.file === f.name);
-        if (
-          t?.source_epoch_ns &&
-          (!entry.node ||
-            (clocks.get(entry.node)?.offset_ns != null &&
-              clocks.get(entry.node)?.uncertainty_ns != null))
-        )
-          source.epoch = t.source_epoch_ns;
+        const t = data.traces.find(
+          (t) =>
+            t.rank === rank &&
+            (t.source_path
+              ? t.source_path === entry.file
+              : t.file === f.name) &&
+            t.node == entry.node,
+        );
+        if (t?.source_epoch_ns && knownClock) source.epoch = t.source_epoch_ns;
       } else {
-        const imported = await importFile(f);
+        let worker;
+        if (!entry.native_output || /\.json(?:\.gz)?$/i.test(f.name)) {
+          try {
+            worker = (await importFile(f)).traces[0];
+          } catch (err) {
+            if (!entry.native_output && manifest.engine !== "torch") throw err;
+            worker = { parse_error: err.message, events: [], counters: [] };
+          }
+        }
         const t = {
-          ...imported.traces[0],
+          ...(worker || { native_only: true, events: [], counters: [] }),
+          file: f.name,
           rank,
           node: entry.node,
           role: entry.role,
         };
         traces.push(t);
-        const off = entry.node ? clocks.get(entry.node)?.offset_ns : 0;
-        if (
-          t.raw_epoch != null &&
-          off != null &&
-          (!entry.node || clocks.get(entry.node)?.uncertainty_ns != null)
-        )
-          source.epoch = String(BigInt(t.raw_epoch) + BigInt(off));
+        if (t.raw_epoch != null && knownClock)
+          source.epoch = String(
+            BigInt(t.raw_epoch) + BigInt(clock?.offset_ns ?? 0),
+          );
         epochs.push(
           source.epoch != null
             ? BigInt(source.epoch) + BigInt(Math.round(t.raw_begin * 1000))
@@ -3818,11 +3869,16 @@ $("captureFolder").onchange = async (event) => {
     }
     if (!data) {
       if (!traces.length) throw Error("No worker traces found in capture.");
-      const aligned = epochs.every((x) => x != null);
+      const timed = epochs.filter(
+        (_, i) => !traces[i].native_only && !traces[i].parse_error,
+      );
+      const aligned = timed.length > 0 && timed.every((x) => x != null);
+      const zero = aligned ? timed.reduce((a, b) => (a < b ? a : b)) : null;
       if (aligned) {
-        const zero = epochs.reduce((a, b) => (a < b ? a : b));
         traces.forEach((t, i) => {
+          if (epochs[i] == null) return;
           const off = Number(epochs[i] - zero) / 1000;
+          t.rank_origin_us = off;
           for (const e of t.events) e.ts += off;
           for (const c of t.counters)
             for (const point of c.points) point[0] += off;
@@ -3834,7 +3890,11 @@ $("captureFolder").onchange = async (event) => {
         traces,
         aligned,
         status: manifest.status,
-        telemetry: {},
+        time_origin_unix_ns: zero?.toString(),
+        telemetry: {
+          analysis:
+            "Raw worker traces. Generate report.html with serveutil report to include hardware samples and interval findings.",
+        },
         hardware: [],
         findings: [],
         alignment_note: aligned ? undefined : "Independent worker clocks",
