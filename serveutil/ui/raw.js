@@ -125,14 +125,10 @@ window.addEventListener("message", (e) => {
     (err) => (nativeStatus.textContent = err.message),
   );
 });
-async function openNative(hosted = false, preferredRank = true) {
+async function openNative(preferredRank = true) {
   const generation = ++nativeGeneration;
   nativePanel.hidden = false;
   document.body.classList.add("full-trace");
-  const hostedButton = document.getElementById("useHosted");
-  const standalone = document.getElementById("standaloneNative");
-  hostedButton.hidden = true;
-  standalone.hidden = true;
   const selected = document.getElementById("rank")?.value;
   if (preferredRank && selected) {
     const i = originals.findIndex(
@@ -163,7 +159,7 @@ async function openNative(hosted = false, preferredRank = true) {
     ? "Independent clocks. Cross-worker time differences require clock calibration."
     : "";
   let base;
-  if (!hosted && location.protocol !== "file:") {
+  if (location.protocol !== "file:") {
     const local = new URL("perfetto/", location.href);
     try {
       const response = await fetch(new URL("manifest.json", local));
@@ -173,33 +169,22 @@ async function openNative(hosted = false, preferredRank = true) {
       )
         base = local;
     } catch (_) {
-      /* A portable standalone report can also use the hosted application. */
+      /* Standalone reports can be opened with the local viewer. */
     }
   }
   if (generation !== nativeGeneration) return;
-  if (!base && !hosted) {
-    if (location.protocol === "file:") {
-      nativeStatus.textContent =
-        "Open this report with serveutil view or Desktop for offline Full Perfetto. You can also save the original here and open it in a Perfetto tab.";
-      standalone.href = "https://ui.perfetto.dev/";
-      standalone.hidden = false;
-    } else {
-      nativeStatus.textContent =
-        "Open this report with serveutil view for offline Full Perfetto, or use the hosted UI.";
-      hostedButton.hidden = false;
-    }
+  if (!base) {
+    nativeStatus.textContent =
+      "Open this report with serveutil view or the desktop app for Full Perfetto.";
     return;
   }
-  if (!base) base = new URL("https://ui.perfetto.dev/");
-  standalone.href = base.href;
-  standalone.hidden = false;
   nativeStatus.textContent = src
     ? "Opening " + src.title + "…"
     : "This report has no original trace attached. Open the original file in Perfetto.";
   nativeFrame?.remove();
   const frame = document.createElement("iframe");
   frame.title = "Perfetto full trace workspace";
-  frame.allow = "fullscreen; usb; serial; hid";
+  frame.allow = "fullscreen";
   frame.src = base.href;
   document.getElementById("nativeFrame").append(frame);
   nativeFrame = frame;
@@ -231,9 +216,7 @@ function closeNative() {
 }
 document.getElementById("fullTrace").onclick = () => openNative();
 document.getElementById("leaveNative").onclick = closeNative;
-document.getElementById("useHosted").onclick = () => openNative(true);
-nativeSources.onchange = () =>
-  openNative(nativeOrigin === "https://ui.perfetto.dev", false);
+nativeSources.onchange = () => openNative(false);
 document.getElementById("saveOriginal").onclick = async () => {
   const src = originals[Number(nativeSources.value)];
   if (!src) return;

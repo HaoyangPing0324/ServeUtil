@@ -199,6 +199,9 @@ em {
   border-radius: 0;
   padding: 8px 0;
 }
+.reportActions {display:flex; flex-wrap:wrap; gap:6px}
+.moreIssues {margin:0 0 6px; padding:3px 0 3px 18px; border:0; box-shadow:none}
+.moreIssues summary {font-size:12px; color:#526974; cursor:pointer}
 .issue:before {
   content: "◆";
   font-size: 11px;

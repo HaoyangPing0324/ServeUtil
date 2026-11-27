@@ -227,6 +227,24 @@ def verify_device_finding_scope(page):
         page.locator("#rank").select_option(rank)
         assert page.locator("#issues button").count() == count
 
+    page.locator("#rank").select_option("0")
+    assert "GPU-a" in page.locator("#issues button").inner_text()
+    # All 45 observations remain reachable even when they share a label.
+    report["findings"] = [dict(name="Repeated GPU gap", rank="0", device="0",
+                                ts=0, dur=i / 2) for i in range(1, 46)]
+    report["engine"] = "repeated gaps"
+    page.locator("#file").set_input_files({
+        "name": "repeated.json", "mimeType": "application/json",
+        "buffer": json.dumps(report).encode(),
+    })
+    page.wait_for_function("report.engine === 'repeated gaps'")
+    assert page.locator("#issues button").count() == 1
+    assert "22.5 µs" in page.locator("#issues button").inner_text()
+    page.get_by_text("Other intervals (44)").click()
+    page.wait_for_function("document.querySelectorAll('#issues button').length === 45")
+    page.locator("#issues button").last.click()
+    assert "Repeated GPU gap" in page.locator("#details").inner_text()
+
 
 def verify(site):
     with ThreadingHTTPServer(
@@ -240,6 +258,7 @@ def verify(site):
                 errors = []
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 page.goto(f"http://127.0.0.1:{server.server_port}/")
+                assert not page.locator("#fullTrace").is_visible()
                 page.get_by_role("link", name="SGLang AllReduce on two H20s").click()
                 card = page.get_by_role(
                     "button", name="Rank 0 · all_reduce", exact=False

@@ -511,22 +511,50 @@ function refresh() {
     });
   $("issues").replaceChildren();
   $("issueCount").textContent = items.length;
-  for (const e of items.slice(0, 40)) {
-    const b = document.createElement("button"),
-      time = document.createElement("small");
-    b.className = "issue";
-    b.textContent = e.name;
-    time.textContent = rankLabel(e.rank) + " · " + fmt(e.dur);
-    b.append(time);
-    b.onclick = () => {
-      details(e.name, e);
-      setWindow(e.ts - e.dur, e.ts + 2 * e.dur);
-    };
-    $("issues").append(b);
-  }
+  renderIssueGroups(items);
   if (!items.length)
     $("issues").textContent = "No matching opportunities in this interval.";
   draw();
+}
+function renderIssueGroups(findings) {
+  const byType = new Map();
+  const inWindow = (e) =>
+    Math.min(windowEnd, e.ts + e.dur) - Math.max(windowStart, e.ts);
+  for (const e of [...findings].sort((a, b) => inWindow(b) - inWindow(a) || a.ts - b.ts)) {
+    if (!byType.has(e.name)) byType.set(e.name, []);
+    byType.get(e.name).push(e);
+  }
+
+  function issueButton(e) {
+    const button = document.createElement("button");
+    const time = document.createElement("small");
+    button.className = "issue";
+    button.textContent = e.name;
+    const scope = e.metric ? [e.node, e.device, e.metric].filter(Boolean).join(" · ") : rankLabel(e.rank);
+    time.textContent = scope + " · " + fmt(inWindow(e)) + " in selection";
+    button.append(time);
+    button.onclick = () => {
+      details(e.name, e);
+      setWindow(e.ts - e.dur, e.ts + 2 * e.dur);
+    };
+    return button;
+  }
+
+  for (const events of byType.values()) {
+    const root = $("issues");
+    root.append(issueButton(events[0]));
+    if (events.length === 1) continue;
+    const more = document.createElement("details");
+    more.className = "moreIssues";
+    const summary = document.createElement("summary");
+    summary.textContent = "Other intervals (" + (events.length - 1) + ")";
+    more.append(summary);
+    more.ontoggle = () => {
+      if (!more.open || more.childElementCount > 1) return;
+      for (const e of events.slice(1)) more.append(issueButton(e));
+    };
+    root.append(more);
+  }
 }
 function deviceLabel(c) {
   const meta = c.node ? report.telemetry?.[c.node] : report.telemetry;
