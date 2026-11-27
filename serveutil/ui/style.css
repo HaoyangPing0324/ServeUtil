@@ -357,3 +357,4 @@ body.dragging main { outline: 2px dashed #0a817e; outline-offset: -6px; }
 .link-endpoints button {display:grid;gap:4px;text-align:left}
 .link-connector {color:#7857a7;font-weight:700}
 #linkInspector .link-focus {margin-top:10px;font-size:12px}
+header .projectDocs{color:white;text-underline-offset:.2em}header #viewerLanguage{min-width:4.5em}

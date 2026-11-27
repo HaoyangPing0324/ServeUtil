@@ -1,4 +1,4 @@
-include README.md
+include README.md README.zh-CN.md
 include packaging/PYPI.md packaging/vendor_perfetto.py
 recursive-include assets *.png
 recursive-include docs *.md

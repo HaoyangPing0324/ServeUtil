@@ -1,37 +1,43 @@
-"""Build the static, offline-capable viewer and its measured examples."""
+"""Build the portable viewer and the English/Chinese documentation website."""
 
 import argparse
+import json
 import shutil
 from pathlib import Path
 
-from serveutil.report import render
+from serveutil.report import render, render_data
 from serveutil.native_view import unpack_perfetto
 
 EXAMPLES = [
     ("h20-decode.html", "Qwen3 decode on H20"),
     ("h20-allreduce.html", "SGLang AllReduce on two H20s"),
+    ("native-example.html", "Full trace example (synthetic)"),
 ]
 
 
 def build_site(destination):
     destination.mkdir(parents=True, exist_ok=True)
     source = Path(__file__).resolve().parents[1] / "examples"
-    for name, _ in EXAMPLES:
-        if source.resolve() != destination.resolve():
-            shutil.copyfile(source / name, destination / name)
-    render(source / "decode.synthetic.json", destination / "native-example.html")
-    links = "".join(
-        f'<a href="{name}">{label}</a>'
-        for name, label in [
-            *EXAMPLES,
-            ("native-example.html", "Full trace example (synthetic)"),
-        ]
-    )
-    if source.resolve() != destination.resolve():
+    site = source.resolve() != destination.resolve()
+    guides = '<a class="projectDocs" href="index.html">Project guides</a>'
+    if site:
+        for name, _ in EXAMPLES[:2]:
+            html = (source / name).read_text(encoding="utf-8")
+            (destination / name).write_text(html.replace("<!-- PROJECT GUIDES -->", guides), encoding="utf-8")
         unpack_perfetto(destination / "perfetto")
-    index = destination / "index.html"
-    index.write_text(render().replace("<!-- EXAMPLES -->", links), encoding="utf-8")
-    return index
+    native = destination / "native-example.html"
+    native.write_text(render(source / "decode.synthetic.json").replace("<!-- PROJECT GUIDES -->", guides if site else ""), encoding="utf-8")
+    links = "".join(f'<a href="{name}">{label}</a>' for name, label in EXAMPLES)
+    viewer = destination / ("viewer.html" if site else "index.html")
+    html = render().replace("<!-- EXAMPLES -->", links)
+    viewer.write_text(html.replace("<!-- PROJECT GUIDES -->", guides if site else ""), encoding="utf-8")
+    if site:
+        from portal import build_docs
+        for path in source.glob("*.report.json"):
+            html = render_data(json.loads(path.read_text(encoding="utf-8")))
+            (destination / path.name.replace(".report.json", ".html")).write_text(html.replace("<!-- PROJECT GUIDES -->", guides), encoding="utf-8")
+        build_docs(destination)
+    return destination / "index.html"
 
 
 if __name__ == "__main__":

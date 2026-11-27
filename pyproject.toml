@@ -32,5 +32,6 @@ serveutil = ["ui/*", "vendor/*"]
 serveutil-viewer = "serveutil.desktop:main"
 
 [project.urls]
+Documentation = "https://haoyangping0324.github.io/ServeUtil/"
 Source = "https://github.com/HaoyangPing0324/ServeUtil"
 Issues = "https://github.com/HaoyangPing0324/ServeUtil/issues"

@@ -257,7 +257,35 @@ def verify(site):
                 page = browser.new_page(viewport={"width": 1400, "height": 900})
                 errors = []
                 page.on("pageerror", lambda error: errors.append(str(error)))
-                page.goto(f"http://127.0.0.1:{server.server_port}/")
+                root = f"http://127.0.0.1:{server.server_port}/"
+                page.goto(root)
+                assert page.locator("html").get_attribute("lang") == "en"
+                page.locator('a.card[href="bandwidth.html"]').click()
+                page.locator("a.language").click()
+                assert page.url.endswith("/zh/bandwidth.html")
+                assert "0.51%" in page.locator("article").inner_text()
+                page.locator('article a[href*="sglang-erdma.html"]').click()
+                page.wait_for_function("document.documentElement.lang === 'zh-CN'")
+                assert "选区资源" in page.locator("main").inner_text()
+                page.locator("#viewerLanguage").click()
+                assert page.locator("html").get_attribute("lang") == "en"
+                page.goto(root + "zh/pd.html")
+                page.locator("a.language").click()
+                assert page.url.endswith("/pd.html")
+                page.locator('article a[href*="sglang-pd.html"]').click()
+                page.locator("#kvTable button").click()
+                assert "7225344" in page.locator("#details").inner_text()
+                rank = page.locator("#rank option").last.get_attribute("value")
+                page.locator("#rank").select_option(rank)
+                page.locator("#viewerLanguage").click()
+                assert page.locator("#rank").input_value() == rank
+                page.goto(root + "zh/downloads.html")
+                page.set_viewport_size({"width": 390, "height": 844})
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                page.locator("a.language").click()
+                assert page.url.endswith("/downloads.html")
+                page.set_viewport_size({"width": 1400, "height": 900})
+                page.goto(f"http://127.0.0.1:{server.server_port}/viewer.html")
                 assert not page.locator("#fullTrace").is_visible()
                 page.get_by_role("link", name="SGLang AllReduce on two H20s").click()
                 card = page.get_by_role(
@@ -275,7 +303,7 @@ def verify(site):
                 }""")
                 page.locator("canvas").click(position={"x": point[0], "y": point[1]})
                 assert "Relative to nccl-tests" in page.locator("#details").inner_text()
-                page.goto(f"http://127.0.0.1:{server.server_port}/")
+                page.goto(f"http://127.0.0.1:{server.server_port}/viewer.html")
                 trace = (
                     Path(__file__).resolve().parents[1]
                     / "examples/decode.synthetic.json"

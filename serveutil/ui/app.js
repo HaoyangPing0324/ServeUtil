@@ -243,6 +243,14 @@ function load(data) {
     if (link.transfer) eventLinks.set(link.transfer, link);
     for (const end of link.ends) if (end.event) eventLinks.set(end.event, link);
   }
+  for (const transfer of data.transfers || []) {
+    for (const time of [transfer.ts, transfer.ts + transfer.dur, transfer.receive_us, transfer.decode_us]) {
+      if (Number.isFinite(time)) {
+        lo = Math.min(lo, time);
+        hi = Math.max(hi, time);
+      }
+    }
+  }
   if (!Number.isFinite(lo))
     for (const series of data.hardware)
       for (const [end, , start] of series.points) {
@@ -1213,7 +1221,7 @@ function draw() {
     ctx.fillStyle = "#e1e8eb";
     ctx.fillRect(0, y + 31, w, 1);
     ctx.fillStyle = "#304957";
-    ctx.fillText(short(r.label, Math.floor(left / 6.4)), 9, y + 19);
+    ctx.fillText(short(uiText(r.label), Math.floor(left / 6.4)), 9, y + 19);
     ctx.save();
     ctx.beginPath();
     ctx.rect(left, y, width, 30);
