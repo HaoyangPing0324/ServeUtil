@@ -111,6 +111,9 @@ class NativeProfilerTests(unittest.TestCase):
                 python_trace = root / "python-writer.json"
                 p.export_chrome_trace(path=str(python_trace), use_python_export=True)
                 self.assertIn("traceEvents", json.loads(python_trace.read_text(encoding="utf-8")))
+                last = json.loads((dirs[-1] / "capture.json").read_text())["traces"][-1]
+                alternate, = last["native_exports"]
+                self.assertEqual((dirs[-1] / alternate).read_bytes(), python_trace.read_bytes())
             if (
                 "cuda_graph_annotations"
                 in inspect.signature(type(p).export_chrome_trace).parameters

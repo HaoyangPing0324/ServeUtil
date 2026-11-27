@@ -3,6 +3,7 @@
 import gzip
 import json
 import os
+import shutil
 import socket
 import tempfile
 import threading
@@ -72,6 +73,25 @@ class Capture:
             self.manifest["traces"].append(trace)
             self.save()
         return trace
+
+    def archive_native_export(self, entry, source):
+        """Keep an alternate JSON writer's exact bytes alongside its capture window."""
+        with self._lock:
+            primary = self.path / entry["file"]
+            exports = entry.get("native_exports", [])
+            directory = primary.parent / (primary.name + ".exports")
+            directory.mkdir(exist_ok=True)
+            suffix = ".json.gz" if str(source).endswith(".gz") else ".json"
+            saved = directory / f"export-{len(exports) + 1}{suffix}"
+            with tempfile.NamedTemporaryFile(dir=directory, delete=False) as temp:
+                staging = Path(temp.name)
+            try:
+                shutil.copyfile(source, staging)
+                staging.replace(saved)
+            finally:
+                staging.unlink(missing_ok=True)
+            entry["native_exports"] = [*exports, str(saved.relative_to(self.path))]
+            self.save()
 
     def complete_export(self, entry, path, binary, error=None):
         """Publish a caller-owned deferred export when its native writer finishes."""

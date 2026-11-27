@@ -158,13 +158,13 @@ def _register_export(capture, profiler, path, binary, native_export, result):
         metadata["native_output"] = True
     elif binary.exists():
         metadata["native_binary"] = str(binary.relative_to(capture.path))
-    capture.add_trace(primary, os.getenv("RANK", "0"),
-                      activities=[activity.name for activity in profiler.activities], **metadata)
-    _bind_export(profiler, path, binary, native_export, result)
+    entry = capture.add_trace(primary, os.getenv("RANK", "0"),
+                              activities=[activity.name for activity in profiler.activities], **metadata)
+    _bind_export(profiler, path, binary, native_export, result, capture, entry)
 
 
-def _bind_export(profiler, path, binary, native_export, result, entry=None):
-    profiler._serveutil_deferred_entry = entry
+def _bind_export(profiler, path, binary, native_export, result, capture, entry):
+    profiler._serveutil_export_entry = (capture, entry)
     profiler._serveutil_native_export = native_export
     profiler._serveutil_archive = path
     profiler._serveutil_binary = binary
@@ -195,18 +195,17 @@ def _export_saved(profiler, *args, **kwargs):
     cuspy = getattr(profiler, "_use_cuspy", False)
     wants_binary = cuspy and ".pftrace" in str(dest)
     source = profiler._serveutil_binary if wants_binary else profiler._serveutil_archive
-    pending = profiler._serveutil_deferred_entry
+    capture, entry = profiler._serveutil_export_entry
     if (
-        (pending is not None and (pending.get("pending") or pending.get("export_error")))
+        entry.get("pending") or entry.get("export_error")
         or not source.is_file()
         or _result(profiler) is not profiler._serveutil_result()
-        or not cuspy and any(
-            value != signature.parameters[name].default
-            for name, value in options.items()
-        )
     ):
-        # Native alternatives (such as use_python_export=True) use their own writer.
         return native(*args, **kwargs)
+    if not cuspy and any(value != signature.parameters[name].default for name, value in options.items()):
+        result = native(*args, **kwargs)
+        capture.archive_native_export(entry, Path(dest))
+        return result
     if cuspy and not str(dest).endswith(".gz"):
         dest = str(dest) + ".gz"
     dest = Path(dest)
@@ -258,7 +257,7 @@ def _complete_cycle(capture, profiler, callback):
         else:
             profiler.export_chrome_trace = previous
     if deferred:
-        _bind_export(profiler, path, binary, native_export, _result(profiler), deferred["entry"])
+        _bind_export(profiler, path, binary, native_export, _result(profiler), capture, deferred["entry"])
         return
     if not destinations:
         _export_cycle(capture, profiler)

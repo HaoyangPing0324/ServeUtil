@@ -59,3 +59,5 @@ Tested combinations include CPU PyTorch 2.10 and 2.15 and H20 CUDA builds of 2.1
 On the tested PyTorch 2.15 Cuspy backend, the default writer and callbacks that complete a native export during the callback retain both encodings of the same window. The capture keeps a copy even if your callback moves or deletes its output. You can request a `.pftrace` after `stop()` or select the binary in the viewer’s source list. Both encodings use the same GPU observations. Keeping both adds encoding time and disk space.
 
 If a callback transfers an asynchronous writer with `take_pending_cuspy_export()`, finish it with its native `join()`. The capture shows `exporting` while writes are pending and creates the report once every writer finishes. Writers may finish in any order.
+
+When you call `export_chrome_trace(..., use_python_export=True)` on a supported Kineto build, ServeUtil also saves the file produced by that writer. You can select it in ServeUtil Viewer to inspect its annotations or export-time metadata. The default trace and alternate exports belong to the same recording window.

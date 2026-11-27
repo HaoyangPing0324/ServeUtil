@@ -97,3 +97,5 @@ PyTorch 2.10 和 2.15 的默认 Kineto writer 在字符串 metadata 含内嵌引
 在已验证的 PyTorch 2.15 Cuspy 后端上，默认导出以及在回调内完成的自定义导出，都会保留同一窗口的原生 JSON 和二进制编码。回调移动或删除自己的文件后，采集目录仍保留原件。在 `stop()` 后仍可导出 `.pftrace`，也可在查看器的来源列表中选择二进制文件。两份编码使用同一组 GPU 记录，额外开销是编码时间和磁盘空间。
 
 回调通过 `take_pending_cuspy_export()` 将写入移交给其他线程时，在该线程调用原生 `join()` 即可。等待写入期间状态为 `exporting`，所有周期写完后自动生成报告。各周期可以乱序完成。
+
+在支持 `export_chrome_trace(..., use_python_export=True)` 的 Kineto 版本上，ServeUtil 会一并保存该写入器生成的文件。在 ServeUtil Viewer 的来源列表中选中它，即可查看导出时添加的标注和元数据。默认 trace 和这些导出文件对应同一个采集窗口。
