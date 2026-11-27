@@ -50,7 +50,7 @@ with serveutil.observe("runs") as run:
         prof.wait_for_exports()
 ```
 
-Write native outputs to the capture's `traces/` directory and finish deferred writes inside the context. This leaves the application's profiler, callbacks and export methods under its control. Use `include_hbm=False` with a native device profiler that needs exclusive CUPTI access. Binary traces open on the same ServeUtil Viewer timeline.
+Write timelines to `run / "traces"`. Write other profiler outputs to `run / "artifacts"`, including an execution graph from `observer.register_callback(str(run / "artifacts" / "execution.json.gz"))`. ServeUtil Viewer opens the timelines together and offers the other files under **Download profiler output**. Subdirectories and original bytes are preserved. Finish deferred writes before leaving the context. Use `include_hbm=False` with a native device profiler that needs exclusive CUPTI access.
 
 Use `from serveutil import profiler` to keep calls such as `profiler.schedule(...)`, `profiler.record_function(...)`, and `profiler.profile(...)` together. These helpers come from the installed PyTorch version. The recording context returns the native profiler instance, including its `step()` method.
 

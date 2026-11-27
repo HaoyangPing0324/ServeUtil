@@ -353,6 +353,32 @@ class NativeProfilerTests(unittest.TestCase):
             )
             self.assertTrue(report["aligned"])
 
+    def test_observe_keeps_graph_memory_stacks_and_resources_out_of_timeline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with serveutil.observe(tmp, devices=[], calibration=False) as capture:
+                traces = capture / "traces"
+                graph = traces / "graph.json.gz"
+                observer = torch.profiler.ExecutionTraceObserver().register_callback(str(graph))
+                with torch.profiler.profile(
+                    activities=[torch.profiler.ProfilerActivity.CPU], record_shapes=True,
+                    with_stack=True, profile_memory=True, execution_trace_observer=observer,
+                ) as profiler:
+                    self.workload(0, "cpu")
+                profiler.export_chrome_trace(str(traces / "worker.json"))
+                profiler.export_memory_timeline(str(traces / "memory.json.gz"), device="cpu")
+                profiler.export_memory_timeline(str(traces / "memory.raw.json.gz"), device="cpu")
+                (traces / "stacks.txt").write_text("model.py(14):forward 7\n")
+                resource = capture / "artifacts" / "graph_resources" / "tensor.bin"
+                resource.parent.mkdir()
+                resource.write_bytes(b"\x00\xff")
+            manifest = json.loads((capture / "capture.json").read_text())
+            self.assertEqual([t["file"] for t in manifest["traces"]], ["traces/worker.json"])
+            self.assertEqual({a["file"] for a in manifest["profiler_artifacts"]}, {
+                "traces/graph.json.gz", "traces/memory.json.gz", "traces/memory.raw.json.gz",
+                "traces/stacks.txt", "artifacts/graph_resources/tensor.bin",
+            })
+            self.assertEqual(len(json.loads((capture / "report.json").read_text())["traces"]), 1)
+
     def test_native_metric_names_reach_torch_activity_config(self):
         from serveutil.telemetry import kineto_activities
 

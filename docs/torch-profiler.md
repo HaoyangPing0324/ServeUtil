@@ -54,7 +54,7 @@ with torch.profiler.profile(**options) as p:
 
 ## 保留原生导出器和异步写入
 
-需要自己控制原生回调、导出格式或后台写入时，可以用 `serveutil.observe` 包住现有代码。上下文返回新建的采集目录。将要在查看器打开的原始 trace 写入其中的 `traces/`，其他产物也可以写在这个采集目录内。硬件采样覆盖整个上下文。退出时，ServeUtil 从实际落盘的文件生成报告。
+需要自己控制原生回调、导出格式或后台写入时，可以用 `serveutil.observe` 包住现有代码。上下文返回新建的采集目录。时间线写入 `run / "traces"`。其他输出写入 `run / "artifacts"`，例如通过 `observer.register_callback(str(run / "artifacts" / "execution.json.gz"))` 保存执行图。ServeUtil Viewer 会一起打开各条时间线，其他文件可从“下载 profiler 输出”取回。采集目录保留子目录结构和原始字节。
 
 ```python
 with serveutil.observe("runs") as run:

@@ -4,11 +4,13 @@ import gzip
 import inspect
 import json
 import os
+import re
 import shutil
 import stat
 import tempfile
 import threading
 import weakref
+import zlib
 from collections.abc import Mapping
 from contextlib import contextmanager
 from functools import wraps
@@ -471,6 +473,31 @@ def _independent_hbm(torch, options):
     )
 
 
+def _observed_artifact(path):
+    """Recognize native PyTorch side files while leaving other trace formats to Perfetto."""
+    name = path.name.lower().removesuffix(".gz")
+    if not name.endswith((".json", ".html", ".txt", ".stacks", ".folded")):
+        return None
+    try:
+        with (gzip.open if path.suffix.lower() == ".gz" else open)(path, "rb") as src:
+            header = src.read(4096).lstrip()
+    except (OSError, EOFError, zlib.error):
+        return None
+    if name.endswith(".json"):
+        if re.match(rb'\{\s*"schema"\s*:\s*"[\w.\-]*chakra', header):
+            return "execution_trace"
+        # Chrome event arrays contain objects. Both memory export formats
+        # start with an array of numbers (timestamps or allocation records).
+        if re.match(rb"\[\s*\[\s*-?\d", header):
+            return "export_memory_timeline"
+    elif name.endswith(".html"):
+        if b"<title>GPU Memory Timeline HTML</title>" in header:
+            return "export_memory_timeline"
+    elif re.match(rb"[^\r\n]*\.py\(\d+\):[^\r\n]* \d+(?:\r?\n|$)", header):
+        return "export_stacks"
+    return None
+
+
 @contextmanager
 def observe(
     output="serveutil-runs",
@@ -482,13 +509,15 @@ def observe(
 ):
     """Sample hardware around an unmodified profiler. Yield its new capture directory.
 
-    Point native exporters at the traces subdirectory. Complete deferred writes
-    before leaving the context. Every original file remains in that directory.
+    Write timelines under traces/ and other native outputs under artifacts/.
+    Finish deferred writes before leaving the context.
     """
     import torch
     from .telemetry import TelemetrySampler
 
     capture = Capture(output, "torch")
+    artifacts = capture.path / "artifacts"
+    artifacts.mkdir()
     try:
         selected = _torch_devices(torch, devices)
         base, error = _baseline(torch, output, selected, calibration)
@@ -504,19 +533,20 @@ def observe(
         finally:
             capture.manifest["telemetry"] = sampler.stop()
             folder = capture.path / "traces"
-            for file in sorted(folder.rglob("*")):
-                if not file.is_file() or not file.resolve().is_relative_to(
-                    folder.resolve()
-                ):
-                    continue
-                # Every file is retained; the summary understands Chrome JSON.
-                capture.manifest["traces"].append(
-                    {
-                        "file": str(file.relative_to(capture.path)),
-                        "rank": os.getenv("RANK", "0"),
-                        "native_output": True,
-                    }
-                )
+            for directory in (folder, artifacts):
+                for file in sorted(directory.rglob("*")):
+                    if not file.is_file() or not file.resolve().is_relative_to(directory.resolve()):
+                        continue
+                    name = str(file.relative_to(capture.path))
+                    kind = "profiler_output" if directory == artifacts else _observed_artifact(file)
+                    if kind:
+                        capture.manifest.setdefault("profiler_artifacts", []).append(
+                            {"file": name, "kind": kind}
+                        )
+                    else:
+                        capture.manifest["traces"].append(
+                            {"file": name, "rank": os.getenv("RANK", "0"), "native_output": True}
+                        )
     except BaseException as exc:
         capture.finish(exc)
         raise
