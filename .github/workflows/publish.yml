@@ -1,0 +1,78 @@
+name: Python package
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish.yml
+      - pyproject.toml
+      - MANIFEST.in
+      - packaging/PYPI.md
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Build the source distribution and its wheel
+        run: |
+          python -m pip install build twine
+          python -m build --outdir package-dist
+          python -m twine check --strict package-dist/*
+      - name: Install and exercise the release wheel outside the checkout
+        working-directory: ${{ runner.temp }}
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python -m venv smoke-env
+          source smoke-env/bin/activate
+          python -m pip install "$GITHUB_WORKSPACE"/package-dist/*.whl
+          python -m pip check
+          python - <<'PY'
+          import os
+          from importlib.metadata import version
+          from pathlib import Path
+          import pynvml
+          import serveutil
+          from serveutil.native_view import unpack_perfetto
+
+          tag = os.environ["RELEASE_TAG"]
+          expected = "v" + version("serveutil")
+          if tag and tag != expected:
+              raise SystemExit(f"Release tag {tag!r} must match {expected!r}")
+          unpack_perfetto(Path("perfetto"))
+          assert list(Path("perfetto").rglob("trace_processor.wasm"))
+          PY
+          serveutil --help
+          serveutil report "$GITHUB_WORKSPACE/examples/decode.synthetic.json" -o report.html
+          test -s report.html
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: python-distributions
+          path: package-dist/
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/serveutil/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-distributions
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
