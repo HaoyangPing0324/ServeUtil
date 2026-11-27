@@ -38,7 +38,7 @@ serveutil capture --engine sglang --topology deployment.json \
 
 ## 采集包
 
-命令返回本轮的 `report.html`。原始 trace、压缩硬件样本、配置结果、节点时钟和可用性在同一目录。可用 `serveutil report CAPTURE -o report.html` 重建页面，或用 `serveutil export CAPTURE -o overview.json` 输出供 Perfetto 打开的多轨概览。设备权限或接口不足的原因见页面底部的采集详情。使用内置请求生成器时，采集器在导出前等在途请求结束。若部分端点导出失败，采集包记录错误，并用已回收的有效 trace 生成可诊断的报告。
+命令打印采集目录，其中包含 `report.json`。原始 trace、压缩硬件样本、配置结果、节点时钟和可用性在同一目录。可用 `serveutil report CAPTURE -o report.json` 重新计算指标，或用 `serveutil export CAPTURE -o overview.json` 输出供 Perfetto 打开的多轨概览。设备权限或接口不足的原因见页面底部的采集详情。使用内置请求生成器时，采集器在导出前等在途请求结束。若部分端点导出失败，采集包记录错误，并用已回收的有效 trace 生成可诊断的报告。
 
 浏览器与桌面查看器可直接打开 ServeUtil HTML、report JSON 和 PyTorch JSON/gzip。直接打开原始 trace 时以已有事件及 counter 绘图；离线 report 命令另行执行关联和优化机会分析。安装 `.[llmperfscope]` 后，还可用 report 命令读取 llmperfscope 的 run 目录，复用其阶段和原始设备采样。[llmperfscope 格式](https://github.com/developer0hye/llmperfscope/blob/main/docs/run-json.md)
 

@@ -372,10 +372,10 @@ def capture_engine(
                 session.manifest["collection_errors"] = errors
             session.finish(exc)
             if session.manifest["traces"]:
-                from .report import render
+                from .report import make_report
 
                 try:
-                    render(session.path, session.path / "report.html")
+                    write_json(session.path / "report.json", make_report(session.path))
                 except Exception as rendering_error:
                     session.manifest["report_error"] = str(rendering_error)
                     session.save()

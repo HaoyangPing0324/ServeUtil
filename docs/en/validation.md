@@ -28,9 +28,9 @@ Both NCCL model configurations recorded NET/IB with GDRDMA at both ends. A compa
 
 In the 3.050 s TP2 selection, 3,956 of 4,469 complete AllReduce operations carried just 2 KiB. A continuous two-GPU AllReduce microbenchmark on this link reached 0.073 GB/s with 2 KiB and 10.048 GB/s with 64 MiB. PP2 was asymmetric, with most bytes moving in the direction of activation sends. Port counters include other traffic on the device. One endpoint GPU was shared. The two disaggregated model runs used NIXL over UCX/TCP. Bundled UCX returned no usable device when explicitly asked for RC on the eRDMA port.
 
-## Profiler and viewer checks
+## Profiler checks
 
-PyTorch CPU 2.10 and 2.15 and CUDA 2.13 and 2.15 were tested. Two H20 model windows using the unmodified PyTorch observer path each kept 3,290 kernels, collected 17 hardware metrics and produced the same tokens as the reference. Native Cuspy JSON and binary exports were tested. A real multi-file PP2 archive retained 1,216,989 slices, 130,746 flows, 127,280 kernels and matching endpoint kernel timestamps under independent Perfetto SQL queries. The bundled official UI was checked against the upstream manifest. Desktop CI opens real reports, Chrome JSON and binary Perfetto traces on Windows, macOS and Linux.
+PyTorch CPU 2.10 and 2.15 and CUDA 2.13 and 2.15 were tested. Two H20 model windows using the unmodified PyTorch observer path each kept 3,290 kernels, collected 17 hardware metrics and produced the same tokens as the reference. Native Cuspy JSON and binary exports were tested. A real multi-file PP2 archive retained 1,216,989 slices, 130,746 flows, 127,280 kernels and matching endpoint kernel timestamps under independent Perfetto SQL queries.
 
 ## Short-window overhead
 
@@ -46,3 +46,9 @@ Two H20s ran eager TP2 serving at concurrency 2 and up to 8 generated tokens per
 | SGLang | ServeUtil | 26.7 | 137.6 | 61.6 |
 
 For a deployment comparison, hold the model, input mix, concurrency and CUDA graph settings fixed, and use longer windows. Short-window differences can reflect requests crossing a boundary.
+
+## Trace fidelity
+
+[Viewer track and event validation](https://haoyangping0324.github.io/ServeUtil-Viewer/viewer-guide.html)
+
+The Python recorder returns the installed PyTorch profiler object. Scheduled cycles, repeated Chrome trace export, metadata, shape and memory recording, stacks, FLOP estimates, execution observers and TensorBoard callbacks have regression tests. `serveutil.profiler` also exposes the installed version’s helpers. Available activities and backends depend on that installation.

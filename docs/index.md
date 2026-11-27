@@ -20,7 +20,7 @@ pip install serveutil
 serveutil view rank0.pt.trace.json.gz
 ```
 
-[打开 H20 上实测的 Qwen3 Decode 时间线](../examples/h20-decode.html)。点击 GPU 事件查看耗时，跨轨道拖选一段时间比较计算和通信。按 **F** 放大到选区。
+[打开 H20 上实测的 Qwen3 Decode 时间线](https://haoyangping0324.github.io/ServeUtil-Viewer/h20-decode.html?lang=zh)。点击 GPU 事件查看耗时，跨轨道拖选一段时间比较计算和通信。按 **F** 放大到选区。
 
 ## 采集推理
 

@@ -14,7 +14,7 @@ with serveutil.profile("runs", record_shapes=True, with_flops=True) as p:
 
 print(p.key_averages().table(sort_by="self_cpu_time_total", row_limit=8))
 p.export_chrome_trace("last-cycle.json.gz")
-print(p.serveutil_directory / "report.html")
+print(p.serveutil_directory)
 ```
 
 ## 保留已有采集代码
@@ -89,3 +89,7 @@ PyTorch 2.10.0 和 2.15.0 的 CPU 录制已验证多周期回调、原生 execut
 PyTorch 2.10 和 2.15 的默认 Kineto writer 在字符串 metadata 含内嵌引号时可能产生无效 JSON。ServeUtil 保留原始字节，在报告中标出无法解析的文件，继续展示同一采集中可解析的周期。可单独下载原件核查上游输出。
 
 在 PyTorch 2.15.0+cu132 的 H20 上，普通 CUDA 活动、按 `CONCURRENT_KERNEL` 筛选、Cuspy 的同步和异步 JSON 导出、原生压缩 Perfetto protobuf 均经过实测。使用 `metrics=["dram__bytes_read.sum.per_second", "dram__bytes_write.sum.per_second"]` 可请求当前 GPU 的原生 HBM 采样。该版本的快捷入口同时启用 `CuspyConfig` 和 `PerformanceMetricsConfig`。实验使用 CUPTI 13.4.92，随 cu132 环境提供的 CUPTI 13.2.2 低于 Cuspy 要求的 13.3。显式传入 `activities` 时可自行控制上游后端。在同一台 H20 上仅启用 Kineto 与 PM 配置时，原生 PyTorch 和 ServeUtil 均有 kernel、零个 PM 计数事件。
+
+也可以使用 `from serveutil import profiler`，由同一命名空间调用当前 PyTorch 的 `schedule`、`record_function` 等辅助 API。使用 `profiler.profile(...)` 得到原生 profiler 实例，可直接调用 `step()`。
+
+在已验证的 PyTorch 2.15 Cuspy 后端上，默认采集会保留同一窗口的原生 JSON 和二进制编码。在 `stop()` 后仍可导出 `.pftrace`，也可在查看器的来源列表中选择二进制文件。两份编码使用同一组 GPU 记录，额外开销是编码时间和磁盘空间。

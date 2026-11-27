@@ -1,14 +1,9 @@
-"""Build a portable local HTML report from native traces and device samples."""
+"""Build a portable metrics report from native traces and device samples."""
 
-import base64
-import gzip
 import json
 import math
-import os
 import re
-import tempfile
 from collections import defaultdict
-from importlib.resources import files
 from pathlib import Path
 
 import ijson
@@ -112,10 +107,14 @@ def load_trace(path, rank, analysis=None):
                 )
             elif "cpu_op" in cats:
                 kind = "operator"
+            elif cats & {"cuda_runtime", "cuda_driver"}:
+                kind = "runtime"
+            elif "python_function" in cats:
+                kind = "python"
             else:
                 continue
             label = kernel_label(name) if kind in {"communication", "compute"} else name
-            device = str(args.get("device", pid))
+            device = str(args.get("device", pid)) if cats & (GPU_EVENTS | {"gpu_user_annotation"}) else pid
             event = dict(
                 ts=ts, dur=duration, name=label, kind=kind, device=device, lane=tid
             )
@@ -381,6 +380,7 @@ def make_report(path, *, analysis=None):
         if base is not None:
             trace["source_epoch_ns"] = str(int(base) + correction(trace.get("node")))
         begin = trace.pop("begin")
+        trace["raw_begin"] = begin
         offset = (
             (int(base) + correction(trace.get("node")) - origin) / 1000
             if common_clock and base is not None
@@ -669,131 +669,3 @@ def make_report(path, *, analysis=None):
         telemetry=telemetry,
         findings=sorted(opportunities, key=lambda x: -x["dur"]),
     )
-
-
-def _portable_data(path):
-    """Recognize a portable report without loading a native Kineto trace into memory."""
-    if not path.is_file():
-        return None
-    if path.suffix.lower() == ".html":
-        html = path.read_text(encoding="utf-8")
-        match = re.search(
-            r'<script\s+id="capture-data"\s+type="application/json">([\s\S]*?)</script>',
-            html,
-            re.I,
-        )
-        if match is None:
-            raise ValueError("This HTML file does not contain a ServeUtil report.")
-        return json.loads(match[1])
-    import ijson
-
-    with open_text(path) as source:
-        for prefix, kind, value in ijson.parse(source.buffer):
-            if prefix == "traceEvents" and kind == "start_array":
-                return None
-            if (prefix, kind, value) == ("schema", "string", "serveutil.report/1"):
-                source.seek(0)
-                return json.load(source)
-    return None
-
-
-def render(path=None, destination=None, *, analysis=None):
-    from . import originals
-
-    data = None
-    raw_sources = []
-    if path is not None:
-        path = Path(path)
-        if path.is_dir():
-            data = make_report(path, analysis=analysis)
-            raw_sources = originals.attachments(path, data)
-        elif path.suffix.lower() == ".html":
-            html = path.read_text(encoding="utf-8", errors="replace")
-            if re.search(
-                r'<script\s+id="capture-data"\s+type="application/json">', html, re.I
-            ):
-                data = _portable_data(path)
-                raw_sources = originals.from_html(html)
-            else:
-                raw_sources = originals.attachments(path)
-        else:
-            # Binary, system, and non-Kineto JSON formats go straight to the
-            # upstream engine. Only the inference summary needs Chrome events.
-            opener = gzip.open if path.suffix.lower() == ".gz" else open
-            with opener(path, "rb") as f:
-                prefix = f.read(1024).lstrip()
-            portable = False
-            if prefix.startswith(b"{"):
-                data = _portable_data(path)
-                portable = data is not None
-                if data is None:
-                    try:
-                        data = make_report(path, analysis=analysis)
-                    except ValueError as exc:
-                        if "expected a PyTorch Chrome trace object" not in str(exc):
-                            raise
-            if not portable:
-                raw_sources = originals.attachments(path)
-    if (
-        destination is not None
-        and path
-        and Path(destination).resolve() == Path(path).resolve()
-    ):
-        raise ValueError("choose an HTML output separate from the input")
-    return render_data(data, destination, raw_sources=raw_sources)
-
-
-def render_data(data, destination=None, *, raw_sources=()):
-    root = files("serveutil").joinpath("ui")
-    template = root.joinpath("index.html").read_text(encoding="utf-8")
-    icon = base64.b64encode(root.joinpath("icon.png").read_bytes()).decode("ascii")
-    template = template.replace("{{ICON}}", "data:image/png;base64," + icon)
-    template = template.replace(
-        "/* STYLE */", root.joinpath("style.css").read_text(encoding="utf-8")
-    )
-    template = template.replace(
-        "/* IMPORT WORKER */",
-        "/*"
-        + root.joinpath("streamparser-LICENSE.txt").read_text(encoding="utf-8")
-        + "*/\n"
-        + root.joinpath("import-worker.js").read_text(encoding="utf-8"),
-    )
-    template = template.replace(
-        "/* APPLICATION */", root.joinpath("app.js").read_text(encoding="utf-8")
-    )
-    template = template.replace(
-        "/* FULL TRACE */", root.joinpath("raw.js").read_text(encoding="utf-8")
-    )
-    template = template.replace("/* TRANSLATIONS */", root.joinpath("language.js").read_text(encoding="utf-8"))
-    template = template.replace("/* NAVIGATION */", root.joinpath("navigation.js").read_text(encoding="utf-8"))
-    raw_json = json.dumps(
-        raw_sources, ensure_ascii=False, separators=(",", ":")
-    ).replace("<", "\\u003c")
-    template = template.replace("<!-- ORIGINALS -->", raw_json)
-    payload = json.dumps(
-        data, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-    ).replace("<", "\\u003c")
-    if len(payload) >= 1024 * 1024 and data.get("encoding") != "gzip+base64":
-        compressed = gzip.compress(payload.encode("utf-8"), compresslevel=3, mtime=0)
-        payload = json.dumps(
-            {
-                "encoding": "gzip+base64",
-                "payload": base64.b64encode(compressed).decode("ascii"),
-            }
-        )
-    html = template.replace("<!-- DATA -->", payload)
-    if destination is not None:
-        destination = Path(destination)
-        if destination.suffix.lower() != ".html":
-            raise ValueError("choose an HTML output separate from the input")
-        with tempfile.NamedTemporaryFile(
-            "w", dir=destination.parent, encoding="utf-8", delete=False
-        ) as f:
-            temporary = Path(f.name)
-            try:
-                f.write(html)
-                f.close()
-                os.replace(temporary, destination)
-            finally:
-                temporary.unlink(missing_ok=True)
-    return html

@@ -42,4 +42,4 @@ For network calibration, edit the addresses, device, port and buffer type in the
 
 To compare against nccl-tests, supply a matching calibration file. Set `collective_groups` by role and Kineto process-group name when group layout is missing. Specify ordered GPU UUIDs and the operation. The report matches message size, layout, operation, root or reduction where applicable, and NCCL version when recorded.
 
-The command prints `report.html`. Keep the capture directory for original traces, calibration, samples and clock metadata. Rebuild with `serveutil report CAPTURE -o report.html`. Failed collection records which endpoints or metrics were unavailable.
+The command prints the capture directory. Keep the capture directory for original traces, calibration, samples and clock metadata. Rebuild with `serveutil report CAPTURE -o report.json`. Failed collection records which endpoints or metrics were unavailable.

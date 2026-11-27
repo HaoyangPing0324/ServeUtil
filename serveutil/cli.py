@@ -26,7 +26,7 @@ def main(argv=None):
     )
     convert.add_argument("--clocks", type=Path, help="JSON source clock overrides for --full")
     convert.add_argument("-o", "--output", type=Path, required=True)
-    report = sub.add_parser("report", help="generate a self-contained offline report")
+    report = sub.add_parser("report", help="export capture metrics to JSON")
     report.add_argument(
         "--analysis",
         choices=["hta", "tracelens"],
@@ -112,9 +112,19 @@ def main(argv=None):
                 counts = export(args.trace[0], args.output)
             print(f"{args.output}: {counts['kept']:,} events")
         elif args.action == "report":
-            from .report import render
+            from .report import make_report
+            from .bundle import write_json
 
-            render(args.trace, args.output, analysis=args.analysis)
+            if args.trace.resolve() == args.output.resolve():
+                p.error("choose an output separate from the input")
+            if args.output.suffix.lower() == ".html":
+                try:
+                    from serveutil_viewer.report import render
+                except ImportError:
+                    p.error("HTML export requires ServeUtil Viewer. Use -o report.json for a metrics export.")
+                render(args.trace, args.output, analyze=lambda path: make_report(path, analysis=args.analysis))
+            else:
+                write_json(args.output, make_report(args.trace, analysis=args.analysis))
             print(args.output)
         elif args.action == "capture":
             from .engines import capture_engine
@@ -176,9 +186,18 @@ def main(argv=None):
                 workload=workload,
                 links=links,
             )
-            print(path / "report.html")
+            print(path)
         elif args.action == "view":
-            from .desktop import view
+            try:
+                from serveutil_viewer.desktop import view
+            except ImportError:
+                if args.desktop:
+                    p.error("Install the standalone ServeUtil Viewer desktop application.")
+                import webbrowser
+                url = "https://haoyangping0324.github.io/ServeUtil-Viewer/viewer.html"
+                print(f"Open {args.path or 'your capture'} in {url}")
+                webbrowser.open(url)
+                return
 
             view(args.path, args.desktop)
         elif args.action == "calibrate":

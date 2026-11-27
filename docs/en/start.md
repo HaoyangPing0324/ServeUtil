@@ -18,10 +18,10 @@ with serveutil.profile("runs", record_shapes=True) as p:
     with torch.profiler.record_function("Projection"):
         y = x @ x
     p.step()
-print(p.serveutil_directory / "report.html")
+print(p.serveutil_directory)
 ```
 
-Open the printed HTML. Use **Stages & resources** to locate Projection and **GPU kernels** to inspect device work. CPU-only captures have CPU activity. CUDA captures can add hardware counters. Select a card to see which resources were measured in that environment. [PyTorch options](torch-profiler.md)
+Open the printed directory in ServeUtil Viewer. Use **Stages & resources** to locate Projection and **GPU kernels** to inspect device work. CPU-only captures have CPU activity. CUDA captures can add hardware counters. Select a card to see which resources were measured in that environment. [PyTorch options](torch-profiler.md)
 
 ## Profile a live model
 
@@ -36,4 +36,4 @@ For existing traffic omit `--generate`. For multi-node or PD deployments use `--
 
 ## Read a measured capture
 
-Start with the [Decode walkthrough](recipes/decode.md), [eRDMA reference comparison](recipes/bandwidth.md) or [one KV handoff](recipes/pd.md). Each tutorial opens its own measured example.
+Start with the [Decode walkthrough](https://haoyangping0324.github.io/ServeUtil-Viewer/decode.html), [eRDMA reference comparison](https://haoyangping0324.github.io/ServeUtil-Viewer/bandwidth.html) or [one KV handoff](https://haoyangping0324.github.io/ServeUtil-Viewer/pd.html). Each tutorial opens its own measured example.

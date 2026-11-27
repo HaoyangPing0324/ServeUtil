@@ -10,4 +10,8 @@ def __getattr__(name):
         from . import recording
 
         return getattr(recording, name)
+    if name == "profiler":
+        from importlib import import_module
+
+        return import_module(".profiler", __name__)
     raise AttributeError(name)

@@ -18,10 +18,10 @@ with serveutil.profile("runs", record_shapes=True) as p:
     with torch.profiler.record_function("Projection"):
         y = x @ x
     p.step()
-print(p.serveutil_directory / "report.html")
+print(p.serveutil_directory)
 ```
 
-打开打印出的 HTML。先在「阶段与资源」找到 Projection，然后进入「GPU kernel」查看设备活动。纯 CPU 采集显示主机活动。CUDA 采集可额外显示硬件计数器。点击资源卡片可查实际测量范围。[PyTorch 选项](torch-profiler.md)
+在 ServeUtil Viewer 中导入打印出的目录。先在「阶段与资源」找到 Projection，然后进入「GPU kernel」查看设备活动。纯 CPU 采集显示主机活动。CUDA 采集可额外显示硬件计数器。点击资源卡片可查实际测量范围。[PyTorch 选项](torch-profiler.md)
 
 ## 采集模型服务
 
@@ -36,4 +36,4 @@ serveutil capture --engine vllm --url http://localhost:8000 \
 
 ## 阅读真实报告
 
-可从 [Decode 空档](recipes/decode.md)、[eRDMA 带宽基线](recipes/bandwidth.md)或[一笔 KV 交接](recipes/pd.md)入手。每篇教程都有相应的实测样例。
+可从 [Decode 空档](https://haoyangping0324.github.io/ServeUtil-Viewer/zh/decode.html)、[eRDMA 带宽基线](https://haoyangping0324.github.io/ServeUtil-Viewer/zh/bandwidth.html)或[一笔 KV 交接](https://haoyangping0324.github.io/ServeUtil-Viewer/zh/pd.html)入手。每篇教程都有相应的实测样例。

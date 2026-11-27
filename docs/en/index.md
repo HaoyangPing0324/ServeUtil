@@ -20,7 +20,7 @@ Open a trace you already have in the browser viewer, or run the following comman
 serveutil view rank0.pt.trace.json.gz
 ```
 
-[Open a Qwen3 Decode capture on H20](../../examples/h20-decode.html). Click a GPU slice to inspect its duration, then drag across tracks to compare work over a time interval. Press **F** to zoom to that selection.
+[Open a Qwen3 Decode capture on H20](https://haoyangping0324.github.io/ServeUtil-Viewer/h20-decode.html). Click a GPU slice to inspect its duration, then drag across tracks to compare work over a time interval. Press **F** to zoom to that selection.
 
 ## Record inference
 

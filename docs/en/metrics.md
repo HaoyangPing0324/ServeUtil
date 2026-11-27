@@ -24,4 +24,4 @@ The collector measures host offsets before and after recording. The details reta
 
 ## Additional analysis
 
-Run `serveutil report TRACE --analysis hta -o report.html` or use `--analysis tracelens` with the corresponding analyzer installed. Details preserve the upstream per-rank fields. See [tools and integrations](tools.md).
+Run `serveutil report TRACE --analysis hta -o report.json` or use `--analysis tracelens` with the corresponding analyzer installed. Details preserve the upstream per-rank fields. See [tools and integrations](tools.md).

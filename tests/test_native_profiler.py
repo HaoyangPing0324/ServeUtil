@@ -153,6 +153,15 @@ class NativeProfilerTests(unittest.TestCase):
                 self.assertEqual(gzip.decompress((dirs[i] / saved).read_bytes()), raw)
                 self.assertEqual(manifest["status"], "complete")
 
+    def test_profiler_namespace_preserves_native_helpers(self):
+        import serveutil.profiler as profiler
+
+        self.assertEqual(set(profiler.__all__), set(torch.profiler.__all__))
+        for name in torch.profiler.__all__:
+            if name != "profile":
+                self.assertIs(getattr(profiler, name), getattr(torch.profiler, name))
+        self.assertIs(profiler.profile, serveutil.profile)
+
     def test_native_cpu_results(self):
         for instrumented in (False, True):
             with self.subTest(instrumented=instrumented):
@@ -237,7 +246,7 @@ class NativeProfilerTests(unittest.TestCase):
                 self.assertNotIn("export_chrome_trace", vars(p))
                 # Additional binary outputs remain byte-exact beside the two JSON cycles.
                 (capture / "traces" / "os.pftrace").write_bytes(b"\x0a\x00")
-            self.assertTrue((capture / "report.html").is_file())
+            self.assertTrue((capture / "report.json").is_file())
             report = make_report(capture)
             self.assertEqual(sum(bool(t["events"]) for t in report["traces"]), 2)
             self.assertEqual(
@@ -299,7 +308,39 @@ class NativeProfilerTests(unittest.TestCase):
             saved = capture.path / capture.manifest["traces"][0]["file"]
             self.assertEqual(saved.read_bytes(), recorder.pending.read_bytes())
             capture.finish()
-            self.assertTrue((capture.path / "report.html").exists())
+            self.assertTrue((capture.path / "report.json").exists())
+
+    @unittest.skipUnless(
+        torch is not None and torch.cuda.is_available() and hasattr(torch.profiler, "CuspyConfig"),
+        "requires the native Cuspy CUDA backend",
+    )
+    def test_cuspy_post_stop_binary_and_json(self):
+
+        if self.run_in_fresh_process():
+            return
+        cpu, cuda = torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA
+        activities = [cpu, {cuda: torch.profiler.ProfilerActivityConfig(
+            profiler_configs=[torch.profiler.CuspyConfig()]
+        )}]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for entry in (torch.profiler.profile, serveutil.profile):
+                options = {} if entry is torch.profiler.profile else dict(output=root, calibration=False)
+                with entry(activities=activities, **options) as recorder:
+                    self.workload(0, "cuda")
+                dest = root / (entry.__module__ + ".pftrace")
+                recorder.export_chrome_trace(str(dest))
+                recorder.wait_for_exports()
+                binary = Path(str(dest) + ".gz")
+                if entry is torch.profiler.profile and not binary.exists():
+                    self.skipTest("native Cuspy observer could not collect a window")
+                self.assertIn(b"batch-0", gzip.decompress(binary.read_bytes()))
+            capture = recorder.serveutil_directory
+            entry = json.loads((capture / "capture.json").read_text())["traces"][0]
+            self.assertEqual((capture / entry["native_binary"]).read_bytes(), binary.read_bytes())
+            recorder.export_chrome_trace(str(root / "last.json.gz"))
+            trace = json.loads(gzip.decompress((root / "last.json.gz").read_bytes()))
+            self.assertTrue(any(e.get("cat") == "kernel" for e in trace["traceEvents"]))
 
     def test_manual_start_stop_default_and_wait_only(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -310,7 +351,7 @@ class NativeProfilerTests(unittest.TestCase):
             p.stop()
             self.assertTrue(p.events())
             p.export_chrome_trace(str(Path(tmp) / "manual.json"))
-            self.assertTrue((p.serveutil_directory / "report.html").exists())
+            self.assertTrue((p.serveutil_directory / "report.json").exists())
             with serveutil.profile(
                 tmp,
                 devices=[],

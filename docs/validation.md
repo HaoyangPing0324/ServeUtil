@@ -68,7 +68,7 @@ vLLM PP2 的 3.227 秒选区中，发送端 595 个完整 Send 有 504 个为 4 
 | 跨物理 GPU 的 PyTorch PP 与 PD | 两台主机各使用一张 H20，经应用专用 SSH 中继传输激活或 KV。重组后的两个模型均与单卡对照逐个生成相同的 5 个 token，两端载荷哈希一致。这组实验用于验证分布式采集和传递结果。 |
 | 跨节点 RDMA | ib_write_bw 的 64 KiB WRITE 测得主存到主存 41.36 GB/s、GPU 到远端主存 47.34 GB/s。后者源和目的端口各约 47.82 GB/s。校准记录注明缓冲区位置和方向。 |
 
-双卡 AllReduce 样例还使用与 trace 相同的 NCCL 2.30.7、同一对 GPU、同一 Socket 路径运行 nccl-tests。截取的 Decode 窗口中，两个 rank 各有 57 个事件能按操作、载荷和布局匹配实测分母。[查看通信样例](../examples/h20-allreduce.html)
+双卡 AllReduce 样例还使用与 trace 相同的 NCCL 2.30.7、同一对 GPU、同一 Socket 路径运行 nccl-tests。截取的 Decode 窗口中，两个 rank 各有 57 个事件能按操作、载荷和布局匹配实测分母。[查看通信样例](https://haoyangping0324.github.io/ServeUtil-Viewer/h20-allreduce.html?lang=zh)
 
 ## 采集时服务会慢多少
 
@@ -84,3 +84,9 @@ vLLM PP2 的 3.227 秒选区中，发送端 595 个完整 Send 有 504 个为 4 
 | SGLang | ServeUtil | 26.7 | 137.6 | 61.6 |
 
 在部署环境里复查开销时，可固定模型、到达率、并发、生成长度和 CUDA Graph 设置，分别运行以上三种模式并增加测量时长。短窗口内少数请求跨过边界就能改变吞吐排序。
+
+## 原始 trace 核对
+
+[查看器原始轨道与事件核对](https://haoyangping0324.github.io/ServeUtil-Viewer/zh/viewer-guide.html)
+
+Python 采集器返回当前安装的原生 PyTorch profiler 对象。回归测试覆盖调度周期、重复导出、元数据、形状、内存、调用栈、FLOP 估算、执行图及 TensorBoard 回调。`serveutil.profiler` 同时提供当前 PyTorch 版本的辅助 API。可用活动和后端取决于安装的 PyTorch。

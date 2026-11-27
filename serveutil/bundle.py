@@ -69,6 +69,6 @@ class Capture:
             self.manifest["error"] = str(error)
         self.save()
         if error is None and self.manifest["traces"]:
-            from .report import render
+            from .report import make_report
 
-            render(self.path, self.path / "report.html")
+            write_json(self.path / "report.json", make_report(self.path))

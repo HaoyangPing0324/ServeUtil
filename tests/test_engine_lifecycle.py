@@ -108,7 +108,7 @@ class EngineLifecycleTests(unittest.TestCase):
                     "node closed",
                 ],
             )
-            self.assertTrue((destination / "report.html").is_file())
+            self.assertTrue((destination / "report.json").is_file())
 
     def test_decode_failure_preserves_rebuildable_trace(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -138,7 +138,7 @@ class EngineLifecycleTests(unittest.TestCase):
                 "lost collection: worker offline", manifest["collection_errors"]
             )
             self.assertEqual(len(manifest["traces"]), 1)
-            self.assertTrue((destination / "report.html").is_file())
+            self.assertTrue((destination / "report.json").is_file())
 
     def test_cpu_only_recovery_is_allowed_only_for_failed_capture(self):
         with tempfile.TemporaryDirectory() as tmp:

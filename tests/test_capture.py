@@ -213,4 +213,4 @@ class ProfilerIntegrationTest(unittest.TestCase):
             self.assertGreater(
                 data["telemetry"]["end_ns"], data["telemetry"]["start_ns"]
             )
-            self.assertTrue((manifest.parent / "report.html").is_file())
+            self.assertTrue((manifest.parent / "report.json").is_file())

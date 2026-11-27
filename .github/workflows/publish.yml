@@ -43,18 +43,16 @@ jobs:
           from pathlib import Path
           import pynvml
           import serveutil
-          from serveutil.native_view import unpack_perfetto
 
           tag = os.environ["RELEASE_TAG"]
           expected = "v" + version("serveutil")
           if tag and tag != expected:
               raise SystemExit(f"Release tag {tag!r} must match {expected!r}")
-          unpack_perfetto(Path("perfetto"))
-          assert list(Path("perfetto").rglob("trace_processor.wasm"))
+          assert not (Path(serveutil.__file__).parent / "ui").exists()
           PY
           serveutil --help
-          serveutil report "$GITHUB_WORKSPACE/examples/decode.synthetic.json" -o report.html
-          test -s report.html
+          serveutil report "$GITHUB_WORKSPACE/examples/decode.synthetic.json" -o report.json
+          test -s report.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: python-distributions

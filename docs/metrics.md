@@ -27,7 +27,7 @@
 
 ## 复用已有分析
 
-`serveutil report TRACE --analysis hta -o report.html` 调用 HTA 的 GPU 时间分解、通信与计算重叠接口。`--analysis tracelens` 使用 TraceLens 的 GPU activity breakdown。先安装相应分析器。结果以引擎原始字段保存在页面详情里，各 rank 独立显示。两者对时间精度和 kernel 类别的处理可不同，比较时应保留各自口径。[Holistic Trace Analysis](https://github.com/facebookresearch/HolisticTraceAnalysis) · [TraceLens SDK](https://github.com/AMD-AGI/TraceLens/blob/main/docs/how-to/sdk-analysis.md)
+`serveutil report TRACE --analysis hta -o report.json` 调用 HTA 的 GPU 时间分解、通信与计算重叠接口。`--analysis tracelens` 使用 TraceLens 的 GPU activity breakdown。先安装相应分析器。结果以引擎原始字段保存在页面详情里，各 rank 独立显示。两者对时间精度和 kernel 类别的处理可不同，比较时应保留各自口径。[Holistic Trace Analysis](https://github.com/facebookresearch/HolisticTraceAnalysis) · [TraceLens SDK](https://github.com/AMD-AGI/TraceLens/blob/main/docs/how-to/sdk-analysis.md)
 
 ## 集合通信详情
 

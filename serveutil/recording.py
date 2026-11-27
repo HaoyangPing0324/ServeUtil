@@ -29,6 +29,44 @@ def _result(profiler):
     return getattr(profiler.profiler, "kineto_results", None) or profiler.profiler
 
 
+@contextmanager
+def _preserve_cuspy_format(profiler, destination):
+    """Encode the native binary from the same finalized window as the JSON.
+
+    The Cuspy writer discards its CPU snapshot and GPU columns on first export.
+    Its finalizer runs on the exporting thread. Observe just this instance and
+    leave every other profiler and its callbacks untouched.
+    """
+    observer = getattr(profiler, "_cuspy_profiler_observer", None)
+    finalize = getattr(observer, "_maybe_write", None)
+    if finalize is None:
+        yield
+        return
+    from torch.profiler._cuspy.trace import merge_trace_window_into_chrome_trace
+
+    def finalize_formats(window_id):
+        with observer._lock:
+            window = observer._windows.get(window_id)
+            ready = window and window["built"] is not None and window["out"] is not None
+            inputs = (window["cpu"], window["built"]) if ready else None
+        if inputs is not None:
+            merge_trace_window_into_chrome_trace(
+                inputs[0], destination, inputs[1], trace_name=str(destination),
+                pftrace_compression_level=observer._pftrace_compression_level,
+            )
+        return finalize(window_id)
+
+    previous = vars(observer).get("_maybe_write")
+    observer._maybe_write = finalize_formats
+    try:
+        yield
+    finally:
+        if previous is None:
+            del observer._maybe_write
+        else:
+            observer._maybe_write = previous
+
+
 def _export_cycle(capture, profiler):
     """Archive Kineto's complete single-use export and replay that cycle on demand."""
     rank = os.getenv("RANK", "0")
@@ -39,16 +77,20 @@ def _export_cycle(capture, profiler):
         profiler, "_serveutil_native_export", profiler.export_chrome_trace
     )
     result = _result(profiler)
+    binary = path.with_suffix("").with_suffix(".pftrace.gz")
     previous = getattr(profiler, "_serveutil_result", None)
     if previous is not None and previous() is result:
         shutil.copyfile(profiler._serveutil_archive, path)
+        if profiler._serveutil_binary is not None:
+            shutil.copyfile(profiler._serveutil_binary, binary)
     else:
         with tempfile.TemporaryDirectory(dir=path.parent) as tmp:
             raw = Path(tmp) / "kineto.json"
             if getattr(profiler, "_use_cuspy", False):
                 # This backend always writes gzip and may complete its export asynchronously.
-                native_export(str(path))
-                profiler.wait_for_exports()
+                with _preserve_cuspy_format(profiler, binary):
+                    native_export(str(path))
+                    profiler.wait_for_exports()
                 if not path.exists():
                     capture.manifest["note"] = (
                         "The native CUDA observer produced no trace for this cycle."
@@ -68,6 +110,10 @@ def _export_cycle(capture, profiler):
     profiler.serveutil_directory = capture.path
     profiler._serveutil_native_export = native_export
     profiler._serveutil_archive = path
+    profiler._serveutil_binary = binary if binary.exists() else None
+    if profiler._serveutil_binary:
+        capture.manifest["traces"][-1]["native_binary"] = str(binary.relative_to(capture.path))
+        capture.save()
     profiler._serveutil_result = weakref.ref(result)
     profiler.export_chrome_trace = MethodType(_export_saved, profiler)
 
@@ -88,10 +134,11 @@ def _export_saved(profiler, *args, **kwargs):
     ):
         options.pop("default_stream", None)
     cuspy = getattr(profiler, "_use_cuspy", False)
+    wants_binary = cuspy and str(dest).endswith((".pftrace", ".pftrace.gz"))
     if (
-        (cuspy and ".pftrace" in Path(dest).suffixes)
+        (wants_binary and profiler._serveutil_binary is None)
         or _result(profiler) is not profiler._serveutil_result()
-        or any(
+        or not cuspy and any(
             value != signature.parameters[name].default
             for name, value in options.items()
         )
@@ -100,7 +147,8 @@ def _export_saved(profiler, *args, **kwargs):
         return native(*args, **kwargs)
     if cuspy and not str(dest).endswith(".gz"):
         dest = str(dest) + ".gz"
-    source, dest = profiler._serveutil_archive, Path(dest)
+    source = profiler._serveutil_binary if wants_binary else profiler._serveutil_archive
+    dest = Path(dest)
     if source.resolve() == dest.resolve():
         return
     if dest.suffix == ".gz":
@@ -259,7 +307,8 @@ def _independent_hbm(torch, options):
         if (cls := getattr(torch.profiler, name, None)) is not None
     )
     cuda = torch.profiler.ProfilerActivity.CUDA
-    for item in options.get("activities") or ():
+    activities = options.get("activities") or ()
+    for item in (activities,) if isinstance(activities, Mapping) else activities:
         if isinstance(item, Mapping):
             config = item.get(cuda)
             if any(
