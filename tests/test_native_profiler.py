@@ -92,7 +92,7 @@ class NativeProfilerTests(unittest.TestCase):
             self.assertFalse(observer.is_registered)
             self.assertEqual(len(dirs), 2)
             self.assertEqual(len(set(dirs)), 2 if instrumented else 1)
-            self.assertTrue(json.loads((root / "execution.json").read_text())["nodes"])
+            self.assertTrue(json.loads((root / "execution.json").read_text(encoding="utf-8"))["nodes"])
             tensorboard = sorted((root / "tb").glob("*.pt.trace.json.gz"))
             self.assertEqual(
                 [gzip.decompress(f.read_bytes()) for f in tensorboard], data
@@ -108,7 +108,7 @@ class NativeProfilerTests(unittest.TestCase):
             ):
                 python_trace = root / "python-writer.json"
                 p.export_chrome_trace(path=str(python_trace), use_python_export=True)
-                self.assertIn("traceEvents", json.loads(python_trace.read_text()))
+                self.assertIn("traceEvents", json.loads(python_trace.read_text(encoding="utf-8")))
             if (
                 "cuda_graph_annotations"
                 in inspect.signature(type(p).export_chrome_trace).parameters
@@ -148,7 +148,7 @@ class NativeProfilerTests(unittest.TestCase):
                 if device == "cuda":
                     self.assertTrue(any(e.get("cat") == "kernel" for e in events))
                     self.assertTrue({"s", "f"} <= {e.get("ph") for e in events})
-                manifest = json.loads((dirs[i] / "capture.json").read_text())
+                manifest = json.loads((dirs[i] / "capture.json").read_text(encoding="utf-8"))
                 saved = manifest["traces"][0 if instrumented else i]["file"]
                 self.assertEqual(gzip.decompress((dirs[i] / saved).read_bytes()), raw)
                 self.assertEqual(manifest["status"], "complete")
@@ -319,7 +319,7 @@ class NativeProfilerTests(unittest.TestCase):
             ) as idle:
                 torch.ones(2)
                 idle.step()
-            m = json.loads((idle.serveutil_directory / "capture.json").read_text())
+            m = json.loads((idle.serveutil_directory / "capture.json").read_text(encoding="utf-8"))
             self.assertEqual(m["traces"], [])
             self.assertEqual(m["status"], "complete")
 
@@ -359,7 +359,7 @@ class NativeProfilerTests(unittest.TestCase):
                 self.assertFalse(observer.is_registered)
                 self.assertTrue((Path(tmp) / "graph.json").exists())
                 manifest = json.loads(
-                    (p.serveutil_directory / "capture.json").read_text()
+                    (p.serveutil_directory / "capture.json").read_text(encoding="utf-8")
                 )
                 self.assertEqual(manifest["status"], "failed")
 

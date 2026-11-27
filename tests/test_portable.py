@@ -96,7 +96,7 @@ class PortableReportTests(unittest.TestCase):
             for source in (bad, good):
                 capture.add_trace(source, 0)
             capture.finish()
-            html = (capture.path / "report.html").read_text()
+            html = (capture.path / "report.html").read_text(encoding="utf-8")
             data = payload(html)
             self.assertTrue(data["aligned"])
             self.assertEqual(data["time_origin_unix_ns"], "5123")

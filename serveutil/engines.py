@@ -334,7 +334,7 @@ def capture_engine(
             if port_rows:
                 path = session.path / "nodes" / worker.name / "calibration.json"
                 base = (
-                    json.loads(path.read_text())
+                    json.loads(path.read_text(encoding="utf-8"))
                     if path.exists()
                     else {"benchmarks": []}
                 )

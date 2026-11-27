@@ -323,7 +323,7 @@ def calibrate(devices=None, *, cache_dir=None, refresh=False):
     with _lock(path.with_suffix(".lock")):
         if path.exists() and not refresh:
             try:
-                cached = json.loads(path.read_text())
+                cached = json.loads(path.read_text(encoding="utf-8"))
             except (ValueError, OSError):
                 cached = {}
             if cached.get("identity") == identity and cached.get("benchmarks"):
