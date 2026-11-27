@@ -25,7 +25,7 @@ ServeUtil 面向 PyTorch、vLLM 和 SGLang。打开一次 Decode，先看各个 
 
 ## 安装
 
-需要 Python 3.10 或更高版本。PyPI 发行版使用下面的命令安装。首次公开发布前，有仓库权限的用户可在源码根目录执行 `python -m pip install .`。
+使用 Python 3.10 或更高版本，从 PyPI 安装 ServeUtil。
 
 ```bash
 pip install serveutil

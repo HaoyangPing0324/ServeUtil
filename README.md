@@ -25,12 +25,11 @@ On two H20 hosts, the sending port averaged 58.5 MB/s over a 3.05-second SGLang 
 
 ## Installation
 
-Use Python 3.10 or later. Install a published release with the first command. Before the first PyPI release, install from a checkout with the second command.
+Install ServeUtil from PyPI with Python 3.10 or later.
 
 ```bash
 pip install serveutil
-# From a source checkout:
-python -m pip install .
+serveutil --help
 ```
 
 The base package includes the CLI, the offline-capable web viewer and NVIDIA NVML bindings. Viewing existing traces works on a CPU-only computer. Model capture uses the PyTorch installation in your inference environment. For independent directional HBM sampling on compatible Linux systems, install `pip install "serveutil[pm]"` and enable GPU counter access. For the desktop window, install `pip install "serveutil[desktop]"` or download a platform build. [Install and download](https://haoyangping0324.github.io/ServeUtil/downloads.html)

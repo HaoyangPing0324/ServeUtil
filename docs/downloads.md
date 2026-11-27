@@ -17,7 +17,7 @@ pip install serveutil
 serveutil --help
 ```
 
-首次 PyPI 发版前，或想使用仓库当前代码时，可直接安装公开源码：
+如需使用 GitHub 仓库的最新源码，运行以下命令。
 
 ```bash
 python -m pip install "serveutil @ git+https://github.com/HaoyangPing0324/ServeUtil.git"

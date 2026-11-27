@@ -17,7 +17,7 @@ pip install serveutil
 serveutil --help
 ```
 
-Before the first PyPI release, or to use the current source:
+To install the latest source from GitHub, run:
 
 ```bash
 python -m pip install "serveutil @ git+https://github.com/HaoyangPing0324/ServeUtil.git"
