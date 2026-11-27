@@ -37,6 +37,8 @@ Pass an existing registered `execution_trace_observer` in the same options. PyTo
 
 ## Preserve caller-managed exports
 
+If `on_trace_ready` raises, the exception propagates to the application. Open the capture folder to inspect completed windows and the recorded error. A caller that took ownership of an asynchronous Cuspy export can finish it through the same native observer after the exception.
+
 Call `prof.export_stacks(...)` or `prof.export_memory_timeline(...)` in the ready callback or after recording. PyTorch writes the requested file. ServeUtil saves a byte-for-byte copy under `artifacts/` and lists its path, export method and zero-based recording cycle in `capture.json` under `profiler_artifacts`. An `ExecutionTraceObserver` writes its graph to the path supplied to `register_callback` when PyTorch finalizes the observer. One graph can cover multiple recording cycles.
 
 ```python

@@ -627,6 +627,60 @@ class NativeProfilerTests(unittest.TestCase):
                     (p.serveutil_directory / "capture.json").read_text(encoding="utf-8")
                 )
                 self.assertEqual(manifest["status"], "failed")
+                trace, = manifest["traces"]
+                with gzip.open(p.serveutil_directory / trace["file"], "rt") as source:
+                    self.assertIn("aten::ones", {e.get("name") for e in json.load(source)["traceEvents"]})
+                report = json.loads((p.serveutil_directory / "report.json").read_bytes())
+                self.assertEqual((report["status"], report["error"]), ("failed", "callback failed"))
+                self.assertTrue(report["traces"][0]["events"])
+
+    @unittest.skipUnless(
+        torch is not None and torch.cuda.is_available() and hasattr(torch.profiler, "CuspyConfig"),
+        "requires the native Cuspy CUDA backend",
+    )
+    def test_failed_cuda_callback_preserves_the_finished_window(self):
+        if self.run_in_fresh_process():
+            return
+        cpu, cuda = torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA
+        activities = [cpu, {cuda: torch.profiler.ProfilerActivityConfig(
+            profiler_configs=[torch.profiler.CuspyConfig()]
+        )}]
+        for requested in (None, "json", "pftrace"):
+            with self.subTest(requested=requested), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                failure = RuntimeError("application callback failed")
+                original = None
+
+                def callback(profiler):
+                    nonlocal original
+                    if requested:
+                        target = root / f"user.{requested}.gz"
+                        profiler.export_chrome_trace(str(target))
+                        profiler.wait_for_exports()
+                        original = target.read_bytes()
+                        target.unlink()
+                    raise failure
+
+                p = serveutil.profile(root, calibration=False, activities=activities, on_trace_ready=callback)
+                with self.assertRaises(RuntimeError) as raised:
+                    with p, torch.profiler.record_function("finished-window"):
+                        torch.ones(16, device="cuda").square()
+                        torch.cuda.synchronize()
+                self.assertIs(raised.exception, failure)
+                manifest = json.loads((p.serveutil_directory / "capture.json").read_bytes())
+                self.assertEqual(manifest["status"], "failed")
+                entry, = manifest["traces"]
+                report = json.loads((p.serveutil_directory / "report.json").read_bytes())
+                self.assertEqual(report["error"], str(failure))
+                self.assertTrue(report["traces"][0]["events"])
+                json_bytes = (p.serveutil_directory / entry["file"]).read_bytes()
+                proto_bytes = (p.serveutil_directory / entry["native_binary"]).read_bytes()
+                events = json.loads(gzip.decompress(json_bytes))["traceEvents"]
+                self.assertTrue(any(e.get("cat") == "kernel" for e in events))
+                self.assertTrue(any(e.get("name") == "finished-window" for e in events))
+                self.assertIn(b"finished-window", gzip.decompress(proto_bytes))
+                if requested:
+                    self.assertEqual(original, json_bytes if requested == "json" else proto_bytes)
 
 
 if __name__ == "__main__":

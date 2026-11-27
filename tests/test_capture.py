@@ -11,6 +11,26 @@ from serveutil.report import make_report, stage_label
 
 
 class CaptureTest(unittest.TestCase):
+    def test_deferred_export_failure_preserves_callback_error_and_completed_data(self):
+        with TemporaryDirectory() as tmp:
+            capture = Capture(tmp, "torch")
+            good = capture.path / "traces" / "done.json"
+            good.write_text(json.dumps({"traceEvents": [
+                {"ph": "X", "cat": "cpu_op", "name": "saved", "pid": 1, "tid": 1, "ts": 1, "dur": 1}
+            ]}))
+            capture.add_trace(good, "0")
+            missing = good.with_name("pending.json.gz")
+            entry = capture.add_trace(missing, "0", pending=True)
+            capture.finish(RuntimeError("callback failed"))
+            report_path = capture.path / "report.json"
+            self.assertFalse(report_path.exists())
+            capture.complete_export(entry, missing, good.with_name("pending.pftrace.gz"), OSError("writer failed"))
+            report = json.loads(report_path.read_bytes())
+            self.assertEqual((report["status"], report["error"]), ("failed", "callback failed"))
+            complete, failed = report["traces"]
+            self.assertEqual(complete["events"][0]["name"], "saved")
+            self.assertEqual(failed["parse_error"], "writer failed")
+
     def test_clock_offsets_samples_and_compatible_reference(self):
         with TemporaryDirectory() as tmp:
             c = Capture(tmp, "sglang")

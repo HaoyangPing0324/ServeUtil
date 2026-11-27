@@ -17,14 +17,13 @@ from pathlib import Path
 from .bundle import Capture, write_json
 
 
-def _failed_callback(profiler, capture, exc):
+def _failed_callback(profiler):
     # PyTorch invokes callbacks between stop_trace and the next prepare_trace.
     # If a callback raises during step(), __exit__ must not stop Kineto twice.
     from torch.profiler import ProfilerAction
 
     profiler.current_action = ProfilerAction.NONE
     profiler.step_rec_fn = None
-    capture.finish(exc)
 
 
 def _result(profiler):
@@ -269,6 +268,29 @@ def _complete_cycle(capture, profiler, callback):
         _export_cycle(capture, profiler)
         return callback(profiler)
 
+    # Cuspy still owns the stopped window when the callback runs. Complete the
+    # archive even if application code fails before or after requesting a file.
+    callback_error = None
+
+    def run_callback():
+        nonlocal callback_error
+        try:
+            callback(profiler)
+        except BaseException as exc:
+            callback_error = exc
+
+    try:
+        _export_cuspy_cycle(capture, profiler, run_callback)
+    except Exception as export_error:
+        if callback_error is None:
+            raise
+        capture.warn_export(capture.path / "traces", export_error)
+        raise callback_error from export_error
+    if callback_error is not None:
+        raise callback_error
+
+
+def _export_cuspy_cycle(capture, profiler, run_callback):
     # Cuspy hands each window to one writer. Give the caller first choice of
     # format and preserve its native export instead of consuming the window.
     destinations = []
@@ -292,7 +314,7 @@ def _complete_cycle(capture, profiler, callback):
     profiler.export_chrome_trace = export
     try:
         with _preserve_cuspy_format(capture, profiler, path, binary) as deferred:
-            callback(profiler)
+            run_callback()
             if destinations:
                 profiler.wait_for_exports()
     finally:
@@ -339,7 +361,8 @@ def trace_handler(output="serveutil-runs", *, on_trace_ready=None):
             _complete_cycle(capture, profiler, on_trace_ready)
             capture.finish()
         except BaseException as exc:
-            _failed_callback(profiler, capture, exc)
+            _failed_callback(profiler)
+            capture.finish(exc)
             raise
 
     return save
@@ -531,7 +554,9 @@ def _record_profile(
         try:
             _complete_cycle(capture, profiler, profiler.on_trace_ready)
         except BaseException as exc:
-            _failed_callback(profiler, capture, exc)
+            _failed_callback(profiler)
+            # The enclosing stop finalizes the telemetry stream before analysis.
+            capture.mark_failed(exc)
             raise
 
     # The native scheduler binds its methods during construction. Attach the
@@ -582,10 +607,7 @@ def _record_profile(
             if operation is native_stop_trace:
                 # PyTorch's low-level pair has no scheduler or ready callback.
                 _complete_cycle(capture, profiler, None)
-            if capture.manifest["status"] == "recording":
-                capture.finish()
-            else:
-                capture.save()
+            capture.finish()
             return result
         except BaseException as exc:
             capture.finish(exc)
@@ -679,7 +701,8 @@ class _CycleObserver:
             _complete_cycle(capture, profiler, self.callback)
             capture.finish()
         except BaseException as exc:
-            _failed_callback(profiler, capture, exc)
+            _failed_callback(profiler)
+            capture.finish(exc)
             self.cleanup()
             raise
 

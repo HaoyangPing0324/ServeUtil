@@ -69,6 +69,8 @@ with serveutil.observe("runs") as run:
 
 ## 数据与原生选项
 
+`on_trace_ready` 抛出的异常会传回应用。打开采集目录可以查看已完成的窗口和错误原因。应用若已接管异步 Cuspy 导出，仍可在异常后通过原生 observer 完成写入。
+
 在回调中或采集结束后调用 `p.export_stacks(...)` 或 `p.export_memory_timeline(...)`，PyTorch 会将文件写到指定位置。ServeUtil 同时在 `artifacts/` 保存字节完全一致的副本。`capture.json` 的 `profiler_artifacts` 记录副本路径、导出方法和从 0 开始的采集周期编号。`ExecutionTraceObserver` 的执行图可以跨越多个周期，PyTorch 在结束 observer 时将完整图写入 `register_callback` 指定的位置。
 
 | 入口或选项 | 结果 |

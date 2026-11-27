@@ -269,6 +269,10 @@ def inputs(path, analysis=None):
                 node=trace.get("node"),
                 role=trace.get("role"),
             )
+            if trace.get("pending") or (trace.get("export_error") and not file.is_file()):
+                traces.append(dict(**metadata, base=None, begin=0, events=[], counters=[],
+                                   parse_error="Native export is pending" if trace.get("pending") else trace["export_error"]))
+                continue
             if trace.get("native_output") and not file.name.lower().endswith(
                 (".json", ".json.gz")
             ):

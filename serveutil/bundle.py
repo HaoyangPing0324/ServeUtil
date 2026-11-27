@@ -113,29 +113,44 @@ class Capture:
             entry.pop("pending", None)
             if error is not None:
                 entry["export_error"] = str(error)
-                self.manifest.update(status="failed", error=str(error))
-            elif path.exists() and binary.exists():
+                self.manifest["status"] = "failed"
+                self.manifest.setdefault("error", str(error))
+            if path.exists() and binary.exists():
                 entry["native_binary"] = str(binary.relative_to(self.path))
             elif binary.exists():
                 entry.update(file=str(binary.relative_to(self.path)), native_output=True)
-            if self.manifest["status"] == "exporting":
+            if "ended_ns" in self.manifest:
                 self._finish_exports()
             else:
                 self.save()
 
     def _finish_exports(self):
+        pending = any(t.get("pending") for t in self.manifest["traces"])
         if self.manifest["status"] != "failed":
-            pending = any(t.get("pending") for t in self.manifest["traces"])
             self.manifest["status"] = "exporting" if pending else "complete"
         self.save()
-        if self.manifest["status"] == "complete" and self.manifest["traces"]:
+        if not pending and self.manifest["traces"]:
             from .report import make_report
 
-            write_json(self.path / "report.json", make_report(self.path))
+            report_path = self.path / "report.json"
+            try:
+                write_json(report_path, make_report(self.path))
+            except Exception as exc:
+                if self.manifest["status"] != "failed":
+                    raise
+                self.warn_export(report_path, exc)
+                self.save()
+
+    def mark_failed(self, error):
+        with self._lock:
+            self.manifest["status"] = "failed"
+            self.manifest.setdefault("error", str(error))
+            self.save()
 
     def finish(self, error=None):
         with self._lock:
             self.manifest["ended_ns"] = time.time_ns()
             if error is not None:
-                self.manifest.update(status="failed", error=str(error))
+                self.manifest["status"] = "failed"
+                self.manifest.setdefault("error", str(error))
             self._finish_exports()
